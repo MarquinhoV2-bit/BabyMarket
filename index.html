@@ -1,14 +1,48 @@
 <!DOCTYPE html>
-<html lang="pt-PT">
+<html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>BabyMarket</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; touch-action: none; }
         canvas { display: block; width: 100vw; height: 100vh; }
+        
+        /* Interface de Usuário (HUD) */
+        #ui-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        #ui-title {
+            color: #fff;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            text-shadow: 2px 2px 4px #000;
+        }
+        #ui-btn {
+            background-color: #ff9900;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        #ui-btn:active {
+            background-color: #cc7a00;
+            transform: scale(0.95);
+        }
     </style>
-    <!-- Importar o Motor 3D (Three.js) diretamente da nuvem -->
     <script type="importmap">
       {
         "imports": {
@@ -18,6 +52,13 @@
     </script>
 </head>
 <body>
+    <!-- Camada da Interface -->
+    <div id="ui-screen">
+        <div id="ui-title">BABYMARKET</div>
+        <button id="ui-btn">INICIAR JOGO</button>
+    </div>
+    
+    <!-- O Motor 3D -->
     <script type="module" src="./src/main.js"></script>
 </body>
 </html>
