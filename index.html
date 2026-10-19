@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-PT">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -8,6 +8,14 @@
         body { margin: 0; overflow: hidden; background-color: #000; }
         canvas { display: block; width: 100vw; height: 100vh; }
     </style>
+    <!-- Importar o Motor 3D (Three.js) diretamente da nuvem -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
 </head>
 <body>
     <script type="module" src="./src/main.js"></script>
