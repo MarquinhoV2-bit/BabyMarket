@@ -218,6 +218,12 @@ function hideAction() {
 function createBaby() {
   const root = new THREE.Group();
   root.name = "Baby_Player_Prototype";
+
+  // O grupo visual anima separadamente da posição de jogo, colisores e escada carregada.
+  const visual = new THREE.Group();
+  visual.name = "Baby_VisualRig";
+  root.add(visual);
+
   const skin = new THREE.MeshStandardMaterial({
     color: 0xf4c7a5,
     roughness: 0.78,
@@ -242,49 +248,102 @@ function createBaby() {
     color: 0x1e293b,
     roughness: 0.7,
   });
+
   const torso = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.17, 0.24, 4, 8),
     shirt
   );
   torso.position.y = 0.47;
-  root.add(torso);
-  const lower = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10), diaper);
+  visual.add(torso);
+
+  const lower = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18, 12, 10),
+    diaper
+  );
   lower.scale.set(1, 0.72, 0.95);
   lower.position.set(0, 0.28, 0.015);
-  root.add(lower);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12), skin);
-  head.position.set(0, 0.84, -0.025);
-  root.add(head);
+  visual.add(lower);
+
+  // Cabeça agrupada para conseguir inclinar junto com o cabelo e os olhos.
+  const headPivot = new THREE.Group();
+  headPivot.name = "Baby_HeadPivot";
+  headPivot.position.set(0, 0.84, -0.025);
+  visual.add(headPivot);
+
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.235, 16, 12),
+    skin
+  );
+  headPivot.add(head);
+
   const cap = new THREE.Mesh(
     new THREE.SphereGeometry(0.205, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.43),
     hair
   );
-  cap.position.set(0, 0.91, -0.02);
-  root.add(cap);
-  for (const s of [-1, 1]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.027, 8, 6), dark);
-    eye.position.set(s * 0.078, 0.865, -0.238);
-    root.add(eye);
+  cap.position.set(0, 0.07, 0.005);
+  headPivot.add(cap);
+
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.027, 8, 6),
+      dark
+    );
+    eye.position.set(side * 0.078, 0.025, -0.213);
+    headPivot.add(eye);
+  }
+
+  const arms = [];
+  const legs = [];
+
+  for (const side of [-1, 1]) {
+    // Ombro articulado: os braços balançam em oposição às pernas durante a caminhada.
+    const armPivot = new THREE.Group();
+    armPivot.name = side < 0 ? "Baby_ArmPivot_L" : "Baby_ArmPivot_R";
+    armPivot.position.set(side * 0.16, 0.58, -0.02);
+    visual.add(armPivot);
+
     const arm = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.052, 0.17, 3, 6),
       skin
     );
-    arm.position.set(s * 0.23, 0.49, -0.02);
-    arm.rotation.z = s * -0.35;
-    root.add(arm);
+    arm.position.set(side * 0.055, -0.10, 0);
+    arm.rotation.z = side * 0.35;
+    armPivot.add(arm);
+    arms.push({ pivot: armPivot, side });
+
+    // Quadril articulado para passos alternados, mantendo o ponto de colisão estável.
+    const legPivot = new THREE.Group();
+    legPivot.name = side < 0 ? "Baby_LegPivot_L" : "Baby_LegPivot_R";
+    legPivot.position.set(side * 0.095, 0.23, 0.01);
+    visual.add(legPivot);
+
     const leg = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.055, 0.12, 3, 6),
       skin
     );
-    leg.position.set(s * 0.095, 0.13, 0.01);
-    root.add(leg);
+    leg.position.set(0, -0.10, 0);
+    legPivot.add(leg);
+
     const foot = new THREE.Mesh(
       new THREE.BoxGeometry(0.12, 0.075, 0.19),
       shoes
     );
-    foot.position.set(s * 0.095, 0.045, -0.035);
-    root.add(foot);
+    foot.position.set(0, -0.185, -0.035);
+    legPivot.add(foot);
+
+    legs.push({ pivot: legPivot, foot, side });
   }
+
+  root.userData.babyRig = {
+    visual,
+    torso,
+    headPivot,
+    arms,
+    legs,
+    clock: 0,
+    walkBlend: 0,
+  };
+
   root.traverse((o) => {
     if (o.isMesh) {
       o.castShadow = false;
@@ -596,6 +655,54 @@ function movePlayer(dt) {
   if (canStand(player.position.x, nz)) player.position.z = nz;
   if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
 }
+function updateBabyAnimation(dt, moved) {
+  if (!player) return;
+  const rig = player.userData.babyRig;
+  if (!rig) return;
+
+  rig.clock += dt;
+  const isWalking = moved && state === "PLAYING" && !climbing;
+  const targetBlend = isWalking ? 1 : 0;
+  rig.walkBlend +=
+    (targetBlend - rig.walkBlend) * (1 - Math.exp(-12 * dt));
+
+  const blend = rig.walkBlend;
+  const strideRate = ladderCarried ? 7.1 : 9.4;
+  const phase = rig.clock * strideRate;
+  const step = Math.sin(phase);
+
+  // A animação movimenta apenas o grupo visual: a posição usada pela lógica permanece estável.
+  const idleBreath = Math.sin(rig.clock * 2.0) * 0.006;
+  const walkingBounce = Math.abs(step) * 0.024 * blend;
+  rig.visual.position.y = idleBreath * (1 - blend) + walkingBounce;
+
+  rig.torso.rotation.x =
+    -0.045 * blend + Math.sin(rig.clock * 1.4) * 0.012 * (1 - blend);
+  rig.headPivot.rotation.x =
+    0.025 * Math.sin(rig.clock * 1.25) + 0.025 * blend;
+  rig.headPivot.rotation.z =
+    0.022 * Math.sin(rig.clock * 0.82) + 0.025 * step * blend;
+
+  for (let i = 0; i < rig.legs.length; i++) {
+    const leg = rig.legs[i];
+    const phaseOffset = i === 0 ? 0 : Math.PI;
+    const legStep = Math.sin(phase + phaseOffset);
+    leg.pivot.rotation.x =
+      legStep * 0.58 * blend + Math.sin(rig.clock * 1.5 + phaseOffset) * 0.012 * (1 - blend);
+    leg.pivot.rotation.z = leg.side * 0.018 * blend;
+    leg.foot.rotation.x = -Math.max(0, legStep) * 0.18 * blend;
+  }
+
+  for (let i = 0; i < rig.arms.length; i++) {
+    const arm = rig.arms[i];
+    const phaseOffset = i === 0 ? 0 : Math.PI;
+    const armStep = Math.sin(phase + phaseOffset);
+    arm.pivot.rotation.x =
+      -armStep * 0.38 * blend + Math.sin(rig.clock * 1.3 + phaseOffset) * 0.018 * (1 - blend);
+    arm.pivot.rotation.z = arm.side * 0.015 * blend;
+  }
+}
+
 function updateTimer(dt) {
   if (state !== "PLAYING") return;
   timeLeft = Math.max(0, timeLeft - dt);
@@ -880,7 +987,12 @@ function animate(now) {
   requestAnimationFrame(animate);
   const dt = Math.min(Math.max((now - lastFrame) / 1000, 0), 0.05);
   lastFrame = now;
+  const beforeX = player ? player.position.x : 0;
+  const beforeZ = player ? player.position.z : 0;
   movePlayer(dt);
+  const actuallyMoved = !!player &&
+    Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
+  updateBabyAnimation(dt, actuallyMoved);
   updateTimer(dt);
   if (state === "PLAYING") updatePrompt();
   if (
