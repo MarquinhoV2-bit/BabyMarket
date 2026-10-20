@@ -27,7 +27,9 @@ css.textContent = `
   #list-help { margin-top:8px; color:#cbd5e1; font-size:12px; }
   #interaction-message { position:absolute; left:50%; bottom:calc(126px + env(safe-area-inset-bottom)); transform:translateX(-50%); width:max-content; max-width:calc(100vw - 22px); padding:9px 12px; border-radius:11px; background:#0f172ae8; border:1px solid #ffffff26; text-align:center; font-size:13px; line-height:1.35; }
   #mobile-controls { display:flex; position:absolute; left:11px; right:11px; bottom:max(12px, env(safe-area-inset-bottom)); align-items:flex-end; justify-content:space-between; pointer-events:none; }
-  #joystick { display:flex; flex-direction:column; align-items:center; gap:3px; pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; }
+  #joystick { position:fixed; left:0; top:0; z-index:26; display:flex; flex-direction:column; align-items:center; gap:3px; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; opacity:0; visibility:hidden; }
+  #joystick.active { opacity:1; visibility:visible; }
+  #joystick-base { pointer-events:none; }
   #joystick-base { position:relative; width:112px; height:112px; border:2px solid rgba(255,255,255,.58); border-radius:50%; background:radial-gradient(circle, rgba(148,163,184,.42), rgba(15,23,42,.76)); box-shadow:0 4px 18px #0005, inset 0 0 0 7px #ffffff0d; touch-action:none; }
   #joystick-knob { position:absolute; left:50%; top:50%; width:44px; height:44px; transform:translate(-50%,-50%); border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#e2e8f0,#64748b); box-shadow:0 3px 10px #0007; pointer-events:none; }
   #joystick-label { color:#fff; font-size:10px; font-weight:900; letter-spacing:.08em; text-shadow:0 2px 5px #000; pointer-events:none; }
@@ -115,13 +117,17 @@ const interactionMessage = hud.querySelector("#interaction-message");
 const interactButton = hud.querySelector("#interact-btn");
 const fullscreenButton = hud.querySelector("#fullscreen-btn");
 const cameraResetButton = hud.querySelector("#camera-reset-btn");
+const joystick = hud.querySelector("#joystick");
 const joystickBase = hud.querySelector("#joystick-base");
 const joystickKnob = hud.querySelector("#joystick-knob");
 let joystickPointerId = null;
+let joystickOriginX = 0;
+let joystickOriginY = 0;
 function resetJoystick() {
   input.analogX = 0;
   input.analogY = 0;
   joystickPointerId = null;
+  joystick.classList.remove("active");
   joystickKnob.style.transform = "translate(-50%,-50%)";
 }
 
@@ -659,45 +665,50 @@ function setupControls() {
     resetJoystick();
     cameraPointerId = null;
   });
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+  function placeFloatingJoystick(e) {
+    // A base visual acompanha o ponto inicial do dedo; a zona de movimento é a metade esquerda.
+    const halfWidth = joystickBase.offsetWidth / 2;
+    const halfHeight = joystickBase.offsetHeight / 2;
+    const visualX = clamp(e.clientX, halfWidth + 4, Math.max(halfWidth + 4, innerWidth * 0.5 - halfWidth - 4));
+    const visualY = clamp(e.clientY, halfHeight + 4, Math.max(halfHeight + 4, innerHeight - halfHeight - 20));
+    joystick.style.left = (visualX - halfWidth) + "px";
+    joystick.style.top = (visualY - halfHeight) + "px";
+    joystick.classList.add("active");
+    joystickOriginX = e.clientX;
+    joystickOriginY = e.clientY;
+  }
   function updateJoystick(e) {
-    const rect = joystickBase.getBoundingClientRect();
-    const maxDistance = (rect.width - joystickKnob.offsetWidth) * 0.48;
-    let dx = e.clientX - (rect.left + rect.width / 2);
-    let dy = e.clientY - (rect.top + rect.height / 2);
+    const maxDistance = (joystickBase.offsetWidth - joystickKnob.offsetWidth) * 0.48;
+    let dx = e.clientX - joystickOriginX;
+    let dy = e.clientY - joystickOriginY;
     const distance = Math.hypot(dx, dy);
     if (distance > maxDistance) {
       const scale = maxDistance / distance;
       dx *= scale;
       dy *= scale;
     }
-    const x = dx / maxDistance, y = dy / maxDistance;
+    const x = dx / maxDistance;
+    const y = dy / maxDistance;
     input.analogX = Math.abs(x) < 0.09 ? 0 : x;
     input.analogY = Math.abs(y) < 0.09 ? 0 : y;
     joystickKnob.style.transform = "translate(calc(-50% + " + dx + "px),calc(-50% + " + dy + "px))";
   }
-  joystickBase.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    joystickPointerId = e.pointerId;
-    if (joystickBase.setPointerCapture) joystickBase.setPointerCapture(e.pointerId);
-    updateJoystick(e);
-  });
-  joystickBase.addEventListener("pointermove", (e) => {
-    if (e.pointerId !== joystickPointerId) return;
-    e.preventDefault();
-    updateJoystick(e);
-  });
-  const releaseJoystick = (e) => {
-    if (e && e.pointerId !== joystickPointerId) return;
-    resetJoystick();
-  };
-  joystickBase.addEventListener("pointerup", releaseJoystick);
-  joystickBase.addEventListener("pointercancel", releaseJoystick);
-  joystickBase.addEventListener("lostpointercapture", releaseJoystick);
-
   // Arraste o lado direito da tela para orbitar a câmera.
   renderer.domElement.addEventListener("pointerdown", (e) => {
-    if (state !== "PLAYING" || e.clientX < innerWidth * 0.38) return;
+    if (state !== "PLAYING") return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.clientX < innerWidth * 0.5) {
+      if (joystickPointerId !== null) return;
+      joystickPointerId = e.pointerId;
+      placeFloatingJoystick(e);
+      updateJoystick(e);
+      if (renderer.domElement.setPointerCapture) renderer.domElement.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
     cameraPointerId = e.pointerId;
     lastCameraX = e.clientX;
     lastCameraY = e.clientY;
@@ -705,6 +716,11 @@ function setupControls() {
     e.preventDefault();
   });
   renderer.domElement.addEventListener("pointermove", (e) => {
+    if (e.pointerId === joystickPointerId) {
+      e.preventDefault();
+      updateJoystick(e);
+      return;
+    }
     if (e.pointerId !== cameraPointerId) return;
     const deltaX = e.clientX - lastCameraX;
     const deltaY = e.clientY - lastCameraY;
@@ -718,6 +734,13 @@ function setupControls() {
     if (e && e.pointerId !== cameraPointerId) return;
     cameraPointerId = null;
   };
+  const endJoystickDrag = (e) => {
+    if (e && e.pointerId !== joystickPointerId) return;
+    resetJoystick();
+  };
+  renderer.domElement.addEventListener("pointerup", endJoystickDrag);
+  renderer.domElement.addEventListener("pointercancel", endJoystickDrag);
+  renderer.domElement.addEventListener("lostpointercapture", endJoystickDrag);
   renderer.domElement.addEventListener("pointerup", endCameraDrag);
   renderer.domElement.addEventListener("pointercancel", endCameraDrag);
   renderer.domElement.addEventListener("lostpointercapture", endCameraDrag);
