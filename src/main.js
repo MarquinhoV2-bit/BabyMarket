@@ -1,152 +1,688 @@
-import * as THREE from 'three';
+import * as THREE from "three";
+import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
-// 1. Configuração da Cena e Câmera
+// BabyMarket — primeira integração do cenário GLB (protótipo de teste).
+const css = document.createElement("style");
+css.textContent = ` #game-canvas { position:fixed; inset:0; z-index:0; } #game-canvas canvas { display:block; width:100%; height:100%; } #ui-subtitle { color:#dbeafe; max-width:520px; margin:0 0 12px; padding:0 12px; text-align:center; line-height:1.45; } #load-error { display:none; color:#fecaca; max-width:520px; padding:0 16px; text-align:center; } #hud { display:none; position:fixed; inset:0; z-index:20; color:#fff; pointer-events:none; font-family:system-ui,sans-serif; } #hud-top { position:absolute; top:max(9px, env(safe-area-inset-top)); left:9px; right:9px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; pointer-events:auto; } .bm-panel { background:rgba(15,23,42,.91); border:1px solid rgba(255,255,255,.18); border-radius:12px; padding:10px 12px; box-shadow:0 4px 18px #0003; backdrop-filter:blur(6px); } #timer-card { font-variant-numeric:tabular-nums; font-weight:900; font-size:20px; min-width:84px; } #timer-card.urgent { color:#fecaca; border-color:#f87171; } #list-toggle, #interact-btn, .bm-dir { border:1px solid rgba(255,255,255,.2); border-radius:12px; font-weight:800; cursor:pointer; touch-action:none; } #list-toggle { color:white; background:rgba(15,23,42,.91); padding:11px 13px; min-height:43px; } #list-count { margin-left:5px; color:#bae6fd; } #list-panel { display:none; position:absolute; top:calc(max(9px, env(safe-area-inset-top)) + 54px); right:9px; width:min(310px, calc(100vw - 18px)); pointer-events:auto; } #list-panel.open { display:block; } #list-panel h2 { margin:0 0 8px; font-size:14px; color:#bae6fd; text-transform:uppercase; letter-spacing:.04em; } #shop-list { list-style:none; margin:0; padding:0; display:grid; gap:7px; } #shop-list li { display:flex; align-items:center; gap:8px; border-radius:7px; padding:7px 8px; background:#ffffff0e; font-size:14px; } #shop-list li.done { color:#86efac; text-decoration:line-through; } .bm-check { display:inline-grid; place-items:center; width:20px; height:20px; border:1px solid #64748b; border-radius:5px; flex:0 0 20px; } li.done .bm-check { color:#052e16; border-color:#86efac; background:#86efac; } #list-help { margin-top:8px; color:#cbd5e1; font-size:12px; } #interaction-message { position:absolute; left:50%; bottom:calc(126px + env(safe-area-inset-bottom)); transform:translateX(-50%); width:max-content; max-width:calc(100vw - 22px); padding:9px 12px; border-radius:11px; background:#0f172ae8; border:1px solid #ffffff26; text-align:center; font-size:13px; line-height:1.35; } #mobile-controls { display:flex; position:absolute; left:11px; right:11px; bottom:max(12px, env(safe-area-inset-bottom)); align-items:flex-end; justify-content:space-between; pointer-events:auto; } #dpad { display:grid; grid-template-columns:repeat(3,46px); grid-template-rows:repeat(2,46px); gap:5px; } .bm-dir { width:46px; height:46px; background:#0f172ad9; color:white; font-size:20px; } #move-up { grid-column:2; grid-row:1; } #move-left { grid-column:1; grid-row:2; } #move-down { grid-column:2; grid-row:2; } #move-right { grid-column:3; grid-row:2; } #interact-btn { min-width:118px; min-height:51px; padding:9px 12px; background:linear-gradient(#fbbf24,#f59e0b); color:#422006; border-color:#fde68a; font-size:12px; } #interact-btn:disabled { display:none; } #controls-help { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); font-size:11px; background:#0f172abf; padding:7px 10px; border-radius:8px; white-space:nowrap; } @media (pointer:fine) and (min-width:721px) { #mobile-controls { display:none; } #interaction-message { bottom:22px; } } `;
+document.head.appendChild(css);
+
+const canvasHost = document.createElement("div");
+canvasHost.id = "game-canvas";
+document.body.prepend(canvasHost);
+const uiScreen = document.getElementById("ui-screen");
+const uiTitle = document.getElementById("ui-title");
+const uiButton = document.getElementById("ui-btn");
+const uiSubtitle = document.createElement("p");
+uiSubtitle.id = "ui-subtitle";
+uiSubtitle.textContent = "Preparando o cenário 3D do BabyMarket.";
+uiScreen.insertBefore(uiSubtitle, uiButton);
+const loadError = document.createElement("p");
+loadError.id = "load-error";
+uiScreen.insertBefore(loadError, uiButton);
+
+const hud = document.createElement("div");
+hud.id = "hud";
+hud.innerHTML = ` <div id="hud-top"> <div id="timer-card" class="bm-panel">⏱️ <span id="timer-value">90</span></div> <button id="list-toggle">📝 LISTA <span id="list-count">0/3</span></button> </div> <section id="list-panel" class="bm-panel"> <h2>Lista de compras</h2> <ul id="shop-list"> <li data-item="Item_Banana"><span class="bm-check"></span><span>🍌 Banana</span></li> <li data-item="Item_Apple"><span class="bm-check"></span><span>🍎 Maçã</span></li> <li data-item="Item_Cereal"><span class="bm-check"></span><span>🥣 Cereal — prateleira alta</span></li> </ul> <div id="list-help">Colete os três produtos antes do tempo acabar.</div> </section> <div id="interaction-message">Explore o supermercado.</div> <div id="mobile-controls"> <div id="dpad"> <button class="bm-dir" id="move-up" data-dir="up" aria-label="Para frente">▲</button> <button class="bm-dir" id="move-left" data-dir="left" aria-label="Esquerda">◀</button> <button class="bm-dir" id="move-down" data-dir="down" aria-label="Para trás">▼</button> <button class="bm-dir" id="move-right" data-dir="right" aria-label="Direita">▶</button> </div> <button id="interact-btn" disabled>INTERAGIR</button> </div> <div id="controls-help">Mover: WASD / setas · Interagir: E ou Espaço</div> `;
+document.body.appendChild(hud);
+
+const timerValue = hud.querySelector("#timer-value");
+const timerCard = hud.querySelector("#timer-card");
+const listToggle = hud.querySelector("#list-toggle");
+const listPanel = hud.querySelector("#list-panel");
+const listCount = hud.querySelector("#list-count");
+const listHelp = hud.querySelector("#list-help");
+const interactionMessage = hud.querySelector("#interaction-message");
+const interactButton = hud.querySelector("#interact-btn");
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
-
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 3, 5);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
-
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambientLight);
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-directionalLight.position.set(10, 20, 10);
-scene.add(directionalLight);
-
-// 2. Chão e Jogador
-const floorGeometry = new THREE.PlaneGeometry(10, 60);
-const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
-const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-floor.rotation.x = -Math.PI / 2;
-floor.position.z = -25;
-scene.add(floor);
-
-const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
-const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x0000ff });
-const player = new THREE.Mesh(playerGeometry, playerMaterial);
-player.position.y = 0.5;
-scene.add(player);
-
-// Variáveis para gerir os múltiplos obstáculos e o objetivo
-let enemies = [];
-let goalMesh = null;
-const goalBox = new THREE.Box3();
-const playerBox = new THREE.Box3();
-
-// 3. Sistema Dinâmico de Level Design (Lê o JSON)
-async function loadLevel() {
-    try {
-        // Pede o ficheiro JSON ao servidor
-        const response = await fetch('./assets/data/level_1.json?v=5');
-        const levelData = await response.json();
-
-        // Moldes para os obstáculos e objetivo
-        const enemyGeom = new THREE.SphereGeometry(0.5, 16, 16);
-        const enemyMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-        const goalGeom = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
-        const goalMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-
-        // Gera os obstáculos baseados nas coordenadas do JSON
-        levelData.obstacles.forEach(obs => {
-            const enemy = new THREE.Mesh(enemyGeom, enemyMat);
-            enemy.position.set(obs.x, 0.5, obs.z);
-            scene.add(enemy);
-            enemies.push({ mesh: enemy, box: new THREE.Box3() });
-        });
-
-        // Gera a linha de chegada
-        goalMesh = new THREE.Mesh(goalGeom, goalMat);
-        goalMesh.position.set(levelData.goal.x, 0.5, levelData.goal.z);
-        scene.add(goalMesh);
-        
-        console.log("Fase carregada do JSON com sucesso!");
-    } catch (error) {
-        console.error("Erro ao carregar o nível:", error);
-    }
-}
-loadLevel();
-
-// 4. Interface de Usuário (HUD)
-const uiScreen = document.getElementById('ui-screen');
-const uiTitle = document.getElementById('ui-title');
-const uiBtn = document.getElementById('ui-btn');
-
-let gameState = 'MENU';
-let playerSpeedX = 0;
-const forwardSpeed = 0.15;
-
-function resetGame() {
-    player.position.set(0, 0.5, 0);
-    playerSpeedX = 0;
-    camera.position.set(0, 3, 5);
-    uiScreen.style.display = 'none';
-    gameState = 'PLAYING';
-}
-uiBtn.addEventListener('click', resetGame);
-
-// 5. Controles Touch
-window.addEventListener('touchstart', (event) => {
-    if (gameState !== 'PLAYING') return;
-    const touchX = event.touches[0].clientX;
-    playerSpeedX = touchX < window.innerWidth / 2 ? -0.15 : 0.15;
+scene.background = new THREE.Color(0xcdeafe);
+const camera = new THREE.PerspectiveCamera(
+  62,
+  innerWidth / innerHeight,
+  0.1,
+  140
+);
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  powerPreference: "high-performance",
 });
-window.addEventListener('touchend', () => { playerSpeedX = 0; });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+canvasHost.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x64748b, 1.8));
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+keyLight.position.set(-7, 16, 8);
+scene.add(keyLight);
 
-// 6. Loop de Jogo e Colisões
-function animate() {
-    requestAnimationFrame(animate);
-    
-    if (gameState === 'PLAYING') {
-        player.position.z -= forwardSpeed;
-        player.position.x += playerSpeedX;
+const ROUND_SECONDS = 90;
+const PLAYER_HEIGHT = 1.12;
+const HALF_X = 0.22;
+const HALF_Z = 0.19;
+const MOVE_SPEED = 3.35;
+const LADDER_SPEED = 2.45;
+const ITEM_REACH = 1.42;
+const HIGH_REACH = 1.48;
+const input = { up: false, down: false, left: false, right: false };
+const targetCam = new THREE.Vector3();
+const targetLook = new THREE.Vector3();
 
-        // Mantém o jogador dentro da pista
-        if (player.position.x > 4.5) player.position.x = 4.5;
-        if (player.position.x < -4.5) player.position.x = -4.5;
+let environment = null;
+let player = null;
+let portableLadder = null;
+let ladderDropZone = null;
+let startPosition = new THREE.Vector3(0, 0, 5.45);
+let ladderStartPosition = new THREE.Vector3(0.45, 0, 3.6);
+let ladderDropPosition = new THREE.Vector3(0.05, 0, -1.85);
+let colliderBoxes = [];
+let items = [];
+let ladderCarried = false;
+let ladderPlaced = false;
+let climbing = false;
+let state = "LOADING";
+let timeLeft = ROUND_SECONDS;
+let lastTimerText = -1;
+let lastMessage = "";
+let countdownId = 0;
+let lastFrame = performance.now();
 
-        // Câmera segue
-        camera.position.z = player.position.z + 5;
-        camera.position.x = player.position.x;
-
-        playerBox.setFromObject(player);
-
-        // Verifica colisão com CADA obstáculo carregado
-        for (let i = 0; i < enemies.length; i++) {
-            enemies[i].box.setFromObject(enemies[i].mesh);
-            if (playerBox.intersectsBox(enemies[i].box)) {
-                gameState = 'GAMEOVER';
-                uiTitle.innerText = "FIM DE JOGO";
-                uiTitle.style.color = "#ff4444";
-                uiBtn.innerText = "TENTAR NOVAMENTE";
-                uiScreen.style.display = 'flex';
-                return;
-            }
-        }
-        
-        // Verifica colisão com a meta
-        if (goalMesh) {
-            goalBox.setFromObject(goalMesh);
-            if (playerBox.intersectsBox(goalBox)) {
-                gameState = 'WIN';
-                uiTitle.innerText = "VITÓRIA!";
-                uiTitle.style.color = "#44ff44";
-                uiBtn.innerText = "JOGAR NOVAMENTE";
-                uiScreen.style.display = 'flex';
-            }
-        }
-    }
-
-    renderer.render(scene, camera);
+function worldPos(obj) {
+  const p = new THREE.Vector3();
+  obj.getWorldPosition(p);
+  return p;
+}
+function distXZ(a, b) {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+function message(text) {
+  if (text !== lastMessage) {
+    interactionMessage.textContent = text;
+    lastMessage = text;
+  }
+}
+function showAction(label) {
+  interactButton.textContent = label;
+  interactButton.disabled = false;
+}
+function hideAction() {
+  interactButton.disabled = true;
+  interactButton.textContent = "INTERAGIR";
 }
 
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-});
+function createBaby() {
+  const root = new THREE.Group();
+  root.name = "Baby_Player_Prototype";
+  const skin = new THREE.MeshStandardMaterial({
+    color: 0xf4c7a5,
+    roughness: 0.78,
+  });
+  const shirt = new THREE.MeshStandardMaterial({
+    color: 0x2585e8,
+    roughness: 0.62,
+  });
+  const diaper = new THREE.MeshStandardMaterial({
+    color: 0xf8fafc,
+    roughness: 0.8,
+  });
+  const hair = new THREE.MeshStandardMaterial({
+    color: 0x6b4226,
+    roughness: 0.95,
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    color: 0x172033,
+    roughness: 0.5,
+  });
+  const shoes = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.7,
+  });
+  const torso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.17, 0.24, 4, 8),
+    shirt
+  );
+  torso.position.y = 0.47;
+  root.add(torso);
+  const lower = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 10), diaper);
+  lower.scale.set(1, 0.72, 0.95);
+  lower.position.set(0, 0.28, 0.015);
+  root.add(lower);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.235, 16, 12), skin);
+  head.position.set(0, 0.84, -0.025);
+  root.add(head);
+  const cap = new THREE.Mesh(
+    new THREE.SphereGeometry(0.205, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.43),
+    hair
+  );
+  cap.position.set(0, 0.91, -0.02);
+  root.add(cap);
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.027, 8, 6), dark);
+    eye.position.set(s * 0.078, 0.865, -0.238);
+    root.add(eye);
+    const arm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.052, 0.17, 3, 6),
+      skin
+    );
+    arm.position.set(s * 0.23, 0.49, -0.02);
+    arm.rotation.z = s * -0.35;
+    root.add(arm);
+    const leg = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.055, 0.12, 3, 6),
+      skin
+    );
+    leg.position.set(s * 0.095, 0.13, 0.01);
+    root.add(leg);
+    const foot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.075, 0.19),
+      shoes
+    );
+    foot.position.set(s * 0.095, 0.045, -0.035);
+    root.add(foot);
+  }
+  root.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = false;
+      o.receiveShadow = true;
+    }
+  });
+  return root;
+}
 
-animate();
+function makeBox(obj) {
+  obj.updateWorldMatrix(true, false);
+  return { name: obj.name, box: new THREE.Box3().setFromObject(obj) };
+}
+function canStand(x, z, y = player.position.y) {
+  const pbox = new THREE.Box3(
+    new THREE.Vector3(x - HALF_X, y, z - HALF_Z),
+    new THREE.Vector3(x + HALF_X, y + PLAYER_HEIGHT, z + HALF_Z)
+  );
+  for (const entry of colliderBoxes) {
+    const b = entry.box;
+    if (pbox.max.y <= b.min.y + 0.001 || pbox.min.y >= b.max.y - 0.001)
+      continue;
+    if (pbox.intersectsBox(b)) return false;
+  }
+  if (ladderPlaced && portableLadder && !climbing) {
+    portableLadder.updateWorldMatrix(true, true);
+    if (pbox.intersectsBox(new THREE.Box3().setFromObject(portableLadder)))
+      return false;
+  }
+  return true;
+}
+
+function updateList() {
+  const count = items.filter((i) => i.collected).length;
+  listCount.textContent = `${count}/${items.length}`;
+  listHelp.textContent =
+    count === items.length
+      ? "Lista completa! Você conseguiu!"
+      : `Produtos coletados: ${count} de ${items.length}.`;
+}
+function resetItems() {
+  for (const item of items) {
+    item.collected = false;
+    item.object.visible = true;
+    const li = hud.querySelector(`li[data-item="${item.name}"]`);
+    if (li) {
+      li.classList.remove("done");
+      li.querySelector(".bm-check").textContent = "";
+    }
+  }
+  updateList();
+}
+function resetLadder() {
+  if (!environment || !portableLadder) return;
+  environment.attach(portableLadder);
+  portableLadder.position.copy(ladderStartPosition);
+  portableLadder.rotation.set(0, 0, 0);
+  portableLadder.scale.set(1, 1, 1);
+  portableLadder.visible = true;
+  ladderCarried = false;
+  ladderPlaced = false;
+  climbing = false;
+}
+function finish(won) {
+  state = won ? "WIN" : "GAMEOVER";
+  Object.keys(input).forEach((k) => (input[k] = false));
+  uiScreen.style.display = "flex";
+  hud.style.display = "block";
+  uiTitle.textContent = won ? "LISTA COMPLETA!" : "TEMPO ESGOTADO!";
+  uiTitle.style.color = won ? "#86efac" : "#fecaca";
+  uiSubtitle.textContent = won
+    ? "Você encontrou todos os produtos do mini supermercado!"
+    : "O tempo acabou. Tente uma rota melhor e use a escada para pegar o cereal.";
+  uiButton.textContent = "JOGAR NOVAMENTE";
+  uiButton.style.display = "inline-block";
+  uiButton.disabled = false;
+  loadError.style.display = "none";
+  message(won ? "Vitória!" : "Fim de jogo.");
+  hideAction();
+}
+function collect(item) {
+  if (!item || item.collected) return;
+  item.collected = true;
+  item.object.visible = false;
+  const li = hud.querySelector(`li[data-item="${item.name}"]`);
+  if (li) {
+    li.classList.add("done");
+    li.querySelector(".bm-check").textContent = "✓";
+  }
+  updateList();
+  message(`${item.label} coletado!`);
+  if (items.every((i) => i.collected)) finish(true);
+}
+function lowItemNear() {
+  const candidates = items.filter(
+    (i) => !i.collected && i.name !== "Item_Cereal"
+  );
+  candidates.sort(
+    (a, b) =>
+      distXZ(player.position, a.position) - distXZ(player.position, b.position)
+  );
+  return (
+    candidates.find((i) => distXZ(player.position, i.position) <= ITEM_REACH) ||
+    null
+  );
+}
+function updatePrompt() {
+  if (state !== "PLAYING" || !player || !portableLadder) {
+    hideAction();
+    return;
+  }
+  if (climbing) {
+    const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
+    if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
+      message("Você alcançou o cereal! Pegue-o.");
+      showAction("PEGAR CEREAL");
+    } else {
+      message("Você está na escada. Toque para descer.");
+      showAction("DESCER");
+    }
+    return;
+  }
+  if (ladderCarried) {
+    if (distXZ(player.position, ladderDropPosition) <= 1.22) {
+      message("Chegou à marca âmbar. Apoie a escada aqui.");
+      showAction("APOIAR ESCADA");
+    } else {
+      message("Leve a escada até a marca âmbar ao lado da prateleira alta.");
+      hideAction();
+    }
+    return;
+  }
+  const ladderPos = worldPos(portableLadder);
+  const dLadder = distXZ(player.position, ladderPos);
+  if (!ladderPlaced && dLadder <= 1.25) {
+    message("Encontrei uma escada! Pegue-a para alcançar o cereal.");
+    showAction("PEGAR ESCADA");
+    return;
+  }
+  if (ladderPlaced && dLadder <= 1.45) {
+    message("A escada está apoiada. Toque para subir.");
+    showAction("SUBIR ESCADA");
+    return;
+  }
+  const item = lowItemNear();
+  if (item) {
+    message(`Produto próximo: ${item.label}. Toque para coletar.`);
+    showAction(`PEGAR ${item.label.toUpperCase()}`);
+    return;
+  }
+  const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
+  if (
+    cereal &&
+    distXZ(player.position, cereal.position) <= 2.1 &&
+    !ladderPlaced
+  )
+    message(
+      "O cereal está alto! Pegue a escada portátil e apoie-a na marca âmbar."
+    );
+  else message("Explore os corredores e procure os produtos da lista.");
+  hideAction();
+}
+function interact() {
+  if (state !== "PLAYING" || !player || !portableLadder) return;
+  if (climbing) {
+    const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
+    if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
+      collect(cereal);
+      return;
+    }
+    player.position.set(
+      ladderDropPosition.x + 0.72,
+      0,
+      ladderDropPosition.z + 0.12
+    );
+    player.rotation.y = 0;
+    climbing = false;
+    message("Você desceu da escada.");
+    updatePrompt();
+    return;
+  }
+  if (ladderCarried) {
+    if (distXZ(player.position, ladderDropPosition) <= 1.22) {
+      environment.attach(portableLadder);
+      portableLadder.position.set(
+        ladderDropPosition.x,
+        0,
+        ladderDropPosition.z
+      );
+      portableLadder.rotation.set(0, 0, 0);
+      portableLadder.scale.set(1, 1, 1);
+      ladderCarried = false;
+      ladderPlaced = true;
+      message("Escada posicionada! Aproxime-se para subir.");
+    } else {
+      message("Chegue mais perto da marca âmbar para apoiar a escada.");
+    }
+    updatePrompt();
+    return;
+  }
+  const ladderPos = worldPos(portableLadder);
+  const dLadder = distXZ(player.position, ladderPos);
+  if (!ladderPlaced && dLadder <= 1.25) {
+    player.attach(portableLadder);
+    portableLadder.position.set(0.36, 0.42, 0.08);
+    portableLadder.rotation.set(0, 0, -0.05);
+    ladderCarried = true;
+    message("Escada na mão! Leve-a até a marca âmbar.");
+    updatePrompt();
+    return;
+  }
+  if (ladderPlaced && dLadder <= 1.45) {
+    climbing = true;
+    player.position.set(
+      ladderDropPosition.x + 0.72,
+      1.03,
+      ladderDropPosition.z + 0.12
+    );
+    player.rotation.y = Math.PI / 2;
+    message("Subiu na escada. Agora pegue o cereal!");
+    updatePrompt();
+    return;
+  }
+  const item = lowItemNear();
+  if (item) {
+    collect(item);
+    updatePrompt();
+    return;
+  }
+  const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
+  if (
+    cereal &&
+    distXZ(player.position, cereal.position) <= 2.1 &&
+    !ladderPlaced
+  )
+    message("Você precisa buscar a escada portátil primeiro.");
+  else message("Não há nada ao alcance. Aproxime-se de um produto ou objeto.");
+}
+async function startGame() {
+  if (!environment || !player) return;
+  const session = ++countdownId;
+  resetLadder();
+  resetItems();
+  player.position.copy(startPosition);
+  player.position.y = 0;
+  player.rotation.set(0, 0, 0);
+  timeLeft = ROUND_SECONDS;
+  lastTimerText = -1;
+  Object.keys(input).forEach((k) => (input[k] = false));
+  state = "COUNTDOWN";
+  hud.style.display = "block";
+  listPanel.classList.remove("open");
+  uiScreen.style.display = "flex";
+  uiButton.style.display = "none";
+  loadError.style.display = "none";
+  for (const t of ["3", "2", "1", "VAMOS ÀS COMPRAS!"]) {
+    if (session !== countdownId) return;
+    uiTitle.textContent = t;
+    uiTitle.style.color = "#fff";
+    uiSubtitle.textContent =
+      t === "VAMOS ÀS COMPRAS!"
+        ? "Encontre os três produtos antes do tempo acabar!"
+        : "Prepare-se...";
+    await new Promise((resolve) => setTimeout(resolve, 650));
+  }
+  if (session !== countdownId) return;
+  uiScreen.style.display = "none";
+  uiButton.style.display = "inline-block";
+  state = "PLAYING";
+  lastFrame = performance.now();
+  updatePrompt();
+  updateCamera(1);
+}
+function updateCamera(alpha) {
+  if (!player) return;
+  targetCam.set(
+    player.position.x,
+    player.position.y + 2.75,
+    player.position.z + 4.35
+  );
+  targetLook.set(
+    player.position.x,
+    player.position.y + 0.72,
+    player.position.z - 1.7
+  );
+  if (alpha >= 1) camera.position.copy(targetCam);
+  else camera.position.lerp(targetCam, alpha);
+  camera.lookAt(targetLook);
+}
+function movePlayer(dt) {
+  if (state !== "PLAYING" || !player || climbing) return;
+  let dx = Number(input.right) - Number(input.left),
+    dz = Number(input.down) - Number(input.up);
+  if (!dx && !dz) return;
+  const len = Math.hypot(dx, dz);
+  dx /= len;
+  dz /= len;
+  const speed = ladderCarried ? LADDER_SPEED : MOVE_SPEED;
+  const nx = player.position.x + dx * speed * dt,
+    nz = player.position.z + dz * speed * dt;
+  if (canStand(nx, player.position.z)) player.position.x = nx;
+  if (canStand(player.position.x, nz)) player.position.z = nz;
+  if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
+}
+function updateTimer(dt) {
+  if (state !== "PLAYING") return;
+  timeLeft = Math.max(0, timeLeft - dt);
+  const n = Math.ceil(timeLeft);
+  if (n !== lastTimerText) {
+    timerValue.textContent = String(n);
+    timerCard.classList.toggle("urgent", n <= 15);
+    lastTimerText = n;
+  }
+  if (timeLeft <= 0) finish(false);
+}
+function setupControls() {
+  const keyMap = {
+    ArrowUp: "up",
+    KeyW: "up",
+    ArrowDown: "down",
+    KeyS: "down",
+    ArrowLeft: "left",
+    KeyA: "left",
+    ArrowRight: "right",
+    KeyD: "right",
+  };
+  window.addEventListener("keydown", (e) => {
+    if (keyMap[e.code]) {
+      input[keyMap[e.code]] = true;
+      e.preventDefault();
+    }
+    if ((e.code === "KeyE" || e.code === "Space") && !e.repeat) {
+      e.preventDefault();
+      interact();
+    }
+    if (e.code === "Escape") listPanel.classList.remove("open");
+  });
+  window.addEventListener("keyup", (e) => {
+    if (keyMap[e.code]) {
+      input[keyMap[e.code]] = false;
+      e.preventDefault();
+    }
+  });
+  window.addEventListener("blur", () =>
+    Object.keys(input).forEach((k) => (input[k] = false))
+  );
+  hud.querySelectorAll(".bm-dir").forEach((btn) => {
+    const dir = btn.dataset.dir;
+    const release = (e) => {
+      if (e) e.preventDefault();
+      input[dir] = false;
+    };
+    btn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      input[dir] = true;
+      if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
+    });
+    btn.addEventListener("pointerup", release);
+    btn.addEventListener("pointercancel", release);
+    btn.addEventListener("lostpointercapture", release);
+  });
+  interactButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    interact();
+  });
+  listToggle.addEventListener("click", () =>
+    listPanel.classList.toggle("open")
+  );
+  uiButton.addEventListener("click", startGame);
+}
+function showLoadError(error) {
+  console.error("[BabyMarket] Erro ao carregar cenário:", error);
+  state = "LOAD_ERROR";
+  uiTitle.textContent = "CENÁRIO NÃO CARREGADO";
+  uiSubtitle.textContent =
+    "Não foi possível abrir o arquivo GLB. Confira se BabyMarket_Cenario_v1.glb está na raiz publicada do repositório.";
+  loadError.textContent = "Detalhes técnicos no console do navegador.";
+  loadError.style.display = "block";
+  uiButton.textContent = "AGUARDANDO CORREÇÃO";
+  uiButton.disabled = true;
+}
+function loadScenario() {
+  const url = new URL("../BabyMarket_Cenario_v1.glb?v=1", import.meta.url).href;
+  new GLTFLoader().load(
+    url,
+    (gltf) => {
+      try {
+        environment = gltf.scene;
+        environment.name = "BabyMarket_Environment_Runtime";
+        scene.add(environment);
+        environment.updateMatrixWorld(true);
+        const group = environment.getObjectByName("Colliders_Group");
+        portableLadder = environment.getObjectByName("PortableLadder_Mesh");
+        ladderDropZone = environment.getObjectByName("Shelf_B_LadderDropZone");
+        const start = environment.getObjectByName("Start_Zone");
+        const banana = environment.getObjectByName("Item_Banana");
+        const apple = environment.getObjectByName("Item_Apple");
+        const cereal = environment.getObjectByName("Item_Cereal");
+        if (
+          !group ||
+          !portableLadder ||
+          !ladderDropZone ||
+          !start ||
+          !banana ||
+          !apple ||
+          !cereal
+        )
+          throw new Error(
+            "Faltam objetos obrigatórios no GLB. Verifique os nomes semânticos."
+          );
+        colliderBoxes = group.children
+          .filter(
+            (o) =>
+              o.userData?.isCollider === true || o.name.startsWith("Collider_")
+          )
+          .map((o) => {
+            const c = makeBox(o);
+            o.visible = false;
+            return c;
+          });
+        if (!colliderBoxes.length)
+          throw new Error("Nenhum colisor foi encontrado no GLB.");
+        startPosition = worldPos(start);
+        startPosition.y = 0;
+        ladderStartPosition = portableLadder.position.clone();
+        ladderStartPosition.y = 0;
+        ladderDropPosition = worldPos(ladderDropZone);
+        ladderDropPosition.y = 0;
+        // Small runtime correction: move banana onto the center of the east produce crate.
+        banana.position.x = -7.35;
+        environment.updateMatrixWorld(true);
+        items = [
+          {
+            name: "Item_Banana",
+            label: "Banana",
+            object: banana,
+            position: worldPos(banana),
+            collected: false,
+          },
+          {
+            name: "Item_Apple",
+            label: "Maçã",
+            object: apple,
+            position: worldPos(apple),
+            collected: false,
+          },
+          {
+            name: "Item_Cereal",
+            label: "Cereal",
+            object: cereal,
+            position: worldPos(cereal),
+            collected: false,
+          },
+        ];
+        player = createBaby();
+        player.position.copy(startPosition);
+        scene.add(player);
+        camera.position.set(0, 5.5, 13);
+        camera.lookAt(0, 0.7, 0);
+        updateList();
+        state = "MENU";
+        uiTitle.textContent = "BABYMARKET";
+        uiSubtitle.textContent =
+          "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
+        uiButton.textContent = "INICIAR JOGO";
+        uiButton.disabled = false;
+        uiButton.style.display = "inline-block";
+        loadError.style.display = "none";
+        console.info(
+          `[BabyMarket] GLB carregado: ${colliderBoxes.length} colisores; ${items.length} itens de teste.`
+        );
+      } catch (e) {
+        showLoadError(e);
+      }
+    },
+    undefined,
+    showLoadError
+  );
+}
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min(Math.max((now - lastFrame) / 1000, 0), 0.05);
+  lastFrame = now;
+  movePlayer(dt);
+  updateTimer(dt);
+  if (state === "PLAYING") updatePrompt();
+  if (
+    player &&
+    (state === "PLAYING" ||
+      state === "COUNTDOWN" ||
+      state === "WIN" ||
+      state === "GAMEOVER")
+  )
+    updateCamera(1 - Math.exp(-6 * dt));
+  renderer.render(scene, camera);
+}
+setupControls();
+loadScenario();
+requestAnimationFrame(animate);
+window.addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
+  renderer.setSize(innerWidth, innerHeight);
+});
