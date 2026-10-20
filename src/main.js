@@ -342,6 +342,9 @@ function createBaby() {
     legs,
     clock: 0,
     walkBlend: 0,
+    actionType: "",
+    actionTime: 0,
+    actionDuration: 0,
   };
 
   root.traverse((o) => {
@@ -427,6 +430,7 @@ function finish(won) {
 }
 function collect(item) {
   if (!item || item.collected) return;
+  triggerBabyAction("pickup");
   item.collected = true;
   item.object.visible = false;
   const li = hud.querySelector(`li[data-item="${item.name}"]`);
@@ -522,6 +526,7 @@ function interact() {
     );
     player.rotation.y = 0;
     climbing = false;
+    triggerBabyAction("climbDown");
     message("Você desceu da escada.");
     updatePrompt();
     return;
@@ -538,6 +543,7 @@ function interact() {
       portableLadder.scale.set(1, 1, 1);
       ladderCarried = false;
       ladderPlaced = true;
+      triggerBabyAction("ladderPlace");
       message("Escada posicionada! Aproxime-se para subir.");
     } else {
       message("Chegue mais perto da marca âmbar para apoiar a escada.");
@@ -552,6 +558,7 @@ function interact() {
     portableLadder.position.set(0.36, 0.42, 0.08);
     portableLadder.rotation.set(0, 0, -0.05);
     ladderCarried = true;
+    triggerBabyAction("ladderPickup");
     message("Escada na mão! Leve-a até a marca âmbar.");
     updatePrompt();
     return;
@@ -564,6 +571,7 @@ function interact() {
       ladderDropPosition.z + 0.12
     );
     player.rotation.y = Math.PI / 2;
+    triggerBabyAction("climbStart");
     message("Subiu na escada. Agora pegue o cereal!");
     updatePrompt();
     return;
@@ -592,6 +600,7 @@ async function startGame() {
   player.position.copy(startPosition);
   player.position.y = 0;
   player.rotation.set(0, 0, 0);
+  triggerBabyAction("");
   cameraYaw = 0;
   cameraPitch = INITIAL_CAMERA_PITCH;
   resetJoystick();
@@ -655,6 +664,22 @@ function movePlayer(dt) {
   if (canStand(player.position.x, nz)) player.position.z = nz;
   if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
 }
+function triggerBabyAction(type) {
+  if (!player) return;
+  const rig = player.userData.babyRig;
+  if (!rig) return;
+  const durations = {
+    pickup: 0.48,
+    ladderPickup: 0.58,
+    ladderPlace: 0.58,
+    climbStart: 0.42,
+    climbDown: 0.42,
+  };
+  rig.actionType = type || "";
+  rig.actionTime = 0;
+  rig.actionDuration = durations[type] || 0;
+}
+
 function updateBabyAnimation(dt, moved) {
   if (!player) return;
   const rig = player.userData.babyRig;
@@ -666,40 +691,96 @@ function updateBabyAnimation(dt, moved) {
   rig.walkBlend +=
     (targetBlend - rig.walkBlend) * (1 - Math.exp(-12 * dt));
 
+  let actionStrength = 0;
+  if (rig.actionType && rig.actionDuration > 0) {
+    rig.actionTime += dt;
+    const t = THREE.MathUtils.clamp(rig.actionTime / rig.actionDuration, 0, 1);
+    // Ease in/out: as ações são visuais e nunca bloqueiam a interação.
+    actionStrength = Math.sin(Math.PI * t);
+    if (t >= 1) {
+      rig.actionType = "";
+      rig.actionTime = 0;
+      rig.actionDuration = 0;
+      actionStrength = 0;
+    }
+  }
+
   const blend = rig.walkBlend;
+  const climbBlend = climbing && state === "PLAYING" ? 1 : 0;
   const strideRate = ladderCarried ? 7.1 : 9.4;
   const phase = rig.clock * strideRate;
   const step = Math.sin(phase);
+  const climbPhase = rig.clock * 8.0;
 
-  // A animação movimenta apenas o grupo visual: a posição usada pela lógica permanece estável.
+  // A animação modifica apenas a malha visual; posição lógica e colisões não mudam.
   const idleBreath = Math.sin(rig.clock * 2.0) * 0.006;
   const walkingBounce = Math.abs(step) * 0.024 * blend;
-  rig.visual.position.y = idleBreath * (1 - blend) + walkingBounce;
+  const climbingBounce = Math.abs(Math.sin(climbPhase)) * 0.009 * climbBlend;
+  const actionDip = actionStrength *
+    (rig.actionType === "pickup" || rig.actionType === "ladderPlace" ? 0.018 : 0.006);
+  rig.visual.position.y =
+    idleBreath * (1 - blend) + walkingBounce + climbingBounce - actionDip;
+
+  const forwardLean = rig.actionType === "pickup" ? 0.28 :
+    rig.actionType === "ladderPlace" ? 0.22 :
+    rig.actionType === "ladderPickup" ? 0.14 :
+    rig.actionType === "climbStart" ? 0.10 :
+    rig.actionType === "climbDown" ? 0.07 : 0;
 
   rig.torso.rotation.x =
-    -0.045 * blend + Math.sin(rig.clock * 1.4) * 0.012 * (1 - blend);
+    -0.045 * blend +
+    Math.sin(rig.clock * 1.4) * 0.012 * (1 - blend) -
+    forwardLean * actionStrength -
+    0.10 * climbBlend;
+
   rig.headPivot.rotation.x =
-    0.025 * Math.sin(rig.clock * 1.25) + 0.025 * blend;
+    0.025 * Math.sin(rig.clock * 1.25) +
+    0.025 * blend -
+    forwardLean * 0.72 * actionStrength -
+    0.04 * climbBlend;
   rig.headPivot.rotation.z =
-    0.022 * Math.sin(rig.clock * 0.82) + 0.025 * step * blend;
+    0.022 * Math.sin(rig.clock * 0.82) +
+    0.025 * step * blend;
 
   for (let i = 0; i < rig.legs.length; i++) {
     const leg = rig.legs[i];
     const phaseOffset = i === 0 ? 0 : Math.PI;
     const legStep = Math.sin(phase + phaseOffset);
+    const climbStep = Math.sin(climbPhase + phaseOffset);
+    const actionLegWeight = rig.actionType === "climbStart" ||
+      rig.actionType === "climbDown" ? 0.2 : 0.06;
     leg.pivot.rotation.x =
-      legStep * 0.58 * blend + Math.sin(rig.clock * 1.5 + phaseOffset) * 0.012 * (1 - blend);
+      legStep * 0.58 * blend +
+      Math.sin(rig.clock * 1.5 + phaseOffset) * 0.012 * (1 - blend) +
+      climbStep * 0.34 * climbBlend +
+      actionLegWeight * actionStrength * Math.max(0, climbStep);
     leg.pivot.rotation.z = leg.side * 0.018 * blend;
-    leg.foot.rotation.x = -Math.max(0, legStep) * 0.18 * blend;
+    leg.foot.rotation.x =
+      -Math.max(0, legStep) * 0.18 * blend +
+      -Math.max(0, climbStep) * 0.10 * climbBlend;
   }
 
   for (let i = 0; i < rig.arms.length; i++) {
     const arm = rig.arms[i];
     const phaseOffset = i === 0 ? 0 : Math.PI;
     const armStep = Math.sin(phase + phaseOffset);
+    const climbStep = Math.sin(climbPhase + phaseOffset);
+    const isPickup = rig.actionType === "pickup";
+    const actionArmWeight = isPickup ? (i === 1 ? 1 : 0.18) : 1;
+    const reach = rig.actionType === "pickup" ? 1.02 :
+      rig.actionType === "ladderPickup" ? 0.78 :
+      rig.actionType === "ladderPlace" ? 0.48 :
+      rig.actionType === "climbStart" ? 0.72 :
+      rig.actionType === "climbDown" ? 0.58 : 0;
+
     arm.pivot.rotation.x =
-      -armStep * 0.38 * blend + Math.sin(rig.clock * 1.3 + phaseOffset) * 0.018 * (1 - blend);
-    arm.pivot.rotation.z = arm.side * 0.015 * blend;
+      -armStep * 0.38 * blend +
+      Math.sin(rig.clock * 1.3 + phaseOffset) * 0.018 * (1 - blend) -
+      reach * actionStrength * actionArmWeight -
+      climbStep * 0.66 * climbBlend;
+    arm.pivot.rotation.z =
+      arm.side * 0.015 * blend +
+      arm.side * 0.14 * actionStrength * actionArmWeight;
   }
 }
 
