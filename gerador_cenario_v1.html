@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BabyMarket 3D — Gerador e Validador GLB (v1.0 Final)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 10px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      z-index: 20;
+    }
+    .title-block h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .title-block p {
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    button {
+      font-size: 12px;
+      border-radius: 6px;
+      padding: 8px 12px;
+      border: 1px solid #475569;
+      background: #0f172a;
+      color: #f8fafc;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    button:hover { background: #334155; }
+    button.primary {
+      background: #0284c7;
+      border-color: #38bdf8;
+      font-weight: 700;
+    }
+    button.primary:hover { background: #0369a1; }
+    #workspace {
+      flex: 1;
+      position: relative;
+      display: flex;
+      overflow: hidden;
+    }
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      height: 100%;
+    }
+    #side-panel {
+      width: 350px;
+      max-width: 92vw;
+      background: rgba(15, 23, 42, 0.96);
+      border-left: 1px solid #334155;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 15;
+    }
+    #side-panel.hidden { display: none; }
+    .panel-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .panel-card h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #38bdf8;
+      margin-bottom: 8px;
+    }
+    #floorplanCanvas {
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      display: block;
+    }
+    .val-list {
+      list-style: none;
+      font-size: 11.5px;
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .val-item {
+      padding: 5px 7px;
+      border-radius: 4px;
+      background: #0f172a;
+      border-left: 3px solid #64748b;
+    }
+    .val-item.pass { border-left-color: #22c55e; color: #dcfce7; }
+    .val-item.fail { border-left-color: #ef4444; color: #fee2e2; }
+    .hud-overlay {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      pointer-events: none;
+      max-width: 360px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 10.5px;
+      margin-right: 4px;
+    }
+    .b-green { background: #166534; color: #dcfce7; }
+    .b-red   { background: #991b1b; color: #fee2e2; }
+    .b-amber { background: #92400e; color: #fef3c7; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="title-block">
+      <h1>BabyMarket — Cenário 3D Revisado e Validado (18m × 14m)</h1>
+      <p>Escala 1 un = 1 m | Piso Y = 0 | Norte = -Z (Fixo) | Prateleiras Abertas | Colisores glTF Invisíveis</p>
+    </div>
+    <div class="controls">
+      <button id="toggleCollidersBtn">Mostrar Wireframe dos Colisores</button>
+      <button id="togglePanelBtn">Planta 2D & Validação GLB</button>
+      <button id="downloadGlbBtn" class="primary">⬇ Baixar BabyMarket_Cenario_v1.glb</button>
+    </div>
+  </header>
+
+  <div id="workspace">
+    <div id="canvas-container">
+      <div class="hud-overlay">
+        <div><span class="badge b-green">1</span><strong>Item_Banana:</strong> (X=1,20, Y=0,94, Z=5,15) — Base em Y=0,85m</div>
+        <div><span class="badge b-red">2</span><strong>Item_Apple:</strong> (X=5,00, Y=1,00, Z=5,40) — Borda Leste / Base Y=0,88m</div>
+        <div><span class="badge b-amber">3</span><strong>Item_Cereal:</strong> (X=8,55, Y=2,46, Z=5,15) — Borda Leste / Base Y=2,25m</div>
+        <div style="margin-top:4px;color:#38bdf8;"><strong>Escada (Zona Alvo):</strong> X=8,70..9,40m | Z=4,625..5,675m (1,60m livre C3)</div>
+      </div>
+    </div>
+
+    <aside id="side-panel">
+      <div class="panel-card">
+        <h2>Planta Oficial Atualizada (18,0 m × 14,0 m)</h2>
+        <canvas id="floorplanCanvas" width="360" height="280"></canvas>
+      </div>
+      <div class="panel-card">
+        <h2>Validação Pós-Recarregamento (GLTFLoader)</h2>
+        <ul id="validationList" class="val-list">
+          <li class="val-item">Executando exportação e validação GLB...</li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f172a);
+
+    const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 120);
+    camera.position.set(0, 17, 15);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0.8, 0);
+    controls.enableDamping = true;
+
+    // Iluminação da cena de preview
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    dirLight.position.set(10, 22, 14);
+    scene.add(dirLight);
+
+    // Conversão fixa definitiva: Origem da planta (0,0) a Noroeste; Norte = -Z
+    const toWorldX = (x) => Number((x - 9.0).toFixed(4));
+    const toWorldZ = (z) => Number((z - 7.0).toFixed(4));
+
+    // Grupo de wireframes apenas para debug visual (FORA do GLB exportado)
+    const debugWireframeGroup = new THREE.Group();
+    debugWireframeGroup.name = 'Debug_Wireframes_PreviewOnly';
+    debugWireframeGroup.visible = false;
+    scene.add(debugWireframeGroup);
+
+    // Materiais PBR exportados no GLB
+    const MAT = {
+      floor: new THREE.MeshStandardMaterial({ name: 'Mat_Floor', color: 0xf1f5f9, roughness: 0.85 }),
+      wall: new THREE.MeshStandardMaterial({ name: 'Mat_Wall', color: 0x334155, roughness: 0.7 }),
+      produceBase: new THREE.MeshStandardMaterial({ name: 'Mat_ProduceStand', color: 0x65a30d, roughness: 0.6 }),
+      produceCrate: new THREE.MeshStandardMaterial({ name: 'Mat_ProduceCrate', color: 0x15803d, roughness: 0.5 }),
+      shelfPost: new THREE.MeshStandardMaterial({ name: 'Mat_ShelfPost', color: 0x475569, roughness: 0.4, metalness: 0.35 }),
+      shelfBoard: new THREE.MeshStandardMaterial({ name: 'Mat_ShelfBoard', color: 0xcbd5e1, roughness: 0.45, metalness: 0.15 }),
+      shelfHighPost: new THREE.MeshStandardMaterial({ name: 'Mat_ShelfHighPost', color: 0xd97706, roughness: 0.4 }),
+      shelfHighBoard: new THREE.MeshStandardMaterial({ name: 'Mat_ShelfHighBoard', color: 0xfbbf24, roughness: 0.4 }),
+      shelfCleanBoard: new THREE.MeshStandardMaterial({ name: 'Mat_ShelfCleaning', color: 0xf59e0b, roughness: 0.5 }),
+      fridgeBody: new THREE.MeshStandardMaterial({ name: 'Mat_FridgeBody', color: 0xbae6fd, roughness: 0.3, metalness: 0.1 }),
+      fridgeGlass: new THREE.MeshStandardMaterial({ name: 'Mat_FridgeGlass', color: 0x38bdf8, roughness: 0.15, transparent: true, opacity: 0.5 }),
+      cartZone: new THREE.MeshStandardMaterial({ name: 'Mat_CartZone', color: 0x3b82f6, roughness: 0.6 }),
+      ladderZone: new THREE.MeshStandardMaterial({ name: 'Mat_LadderZone', color: 0xf59e0b, roughness: 0.6 }),
+      ladderWood: new THREE.MeshStandardMaterial({ name: 'Mat_Ladder', color: 0xd97706, roughness: 0.55 }),
+      startZone: new THREE.MeshStandardMaterial({ name: 'Mat_StartZone', color: 0x10b981, roughness: 0.5 }),
+      banana: new THREE.MeshStandardMaterial({ name: 'Mat_Item_Banana', color: 0xfacc15, roughness: 0.3 }),
+      apple: new THREE.MeshStandardMaterial({ name: 'Mat_Item_Apple', color: 0xef4444, roughness: 0.25 }),
+      cereal: new THREE.MeshStandardMaterial({ name: 'Mat_Item_Cereal', color: 0xf97316, roughness: 0.3 }),
+      // Solução compatível com glTF 2.0: alphaMode BLEND com opacidade 0.0 (não aparece visualmente ao carregar)
+      colliderInvisible: new THREE.MeshStandardMaterial({
+        name: 'Mat_Collider_Invisible',
+        color: 0x22d3ee,
+        transparent: true,
+        opacity: 0.0,
+        roughness: 1.0,
+        metalness: 0.0,
+        depthWrite: false
+      }),
+      debugWire: new THREE.MeshBasicMaterial({ color: 0x22d3ee, wireframe: true })
+    };
+
+    let validatedGlbBuffer = null;
+    let currentSceneModel = null;
+
+    function createBabyMarketScene() {
+      debugWireframeGroup.clear();
+
+      const marketRoot = new THREE.Group();
+      marketRoot.name = 'BabyMarket_Environment';
+
+      const collidersGroup = new THREE.Group();
+      collidersGroup.name = 'Colliders_Group';
+      collidersGroup.userData = { isColliderGroup: true };
+
+      function addMeshBox(name, x1, x2, z1, z2, yBottom, height, material, parent) {
+        const w = Number(Math.abs(x2 - x1).toFixed(4));
+        const d = Number(Math.abs(z2 - z1).toFixed(4));
+        const h = Number(height.toFixed(4));
+        const cx = toWorldX((x1 + x2) / 2);
+        const cz = toWorldZ((z1 + z2) / 2);
+        const cy = Number((yBottom + h / 2).toFixed(4));
+
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+        mesh.name = name;
+        mesh.position.set(cx, cy, cz);
+        parent.add(mesh);
+        return mesh;
+      }
+
+      function addBoxCollider(targetName, x1, x2, z1, z2, yBottom, height) {
+        const w = Number(Math.abs(x2 - x1).toFixed(4));
+        const d = Number(Math.abs(z2 - z1).toFixed(4));
+        const h = Number(height.toFixed(4));
+        const cx = toWorldX((x1 + x2) / 2);
+        const cz = toWorldZ((z1 + z2) / 2);
+        const cy = Number((yBottom + h / 2).toFixed(4));
+
+        const col = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MAT.colliderInvisible);
+        col.name = `Collider_${targetName}`;
+        col.position.set(cx, cy, cz);
+        col.userData = { isCollider: true, target: targetName };
+        collidersGroup.add(col);
+
+        const wire = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MAT.debugWire);
+        wire.position.set(cx, cy, cz);
+        debugWireframeGroup.add(wire);
+        return col;
+      }
+
+      // 1. PISO PRINCIPAL (18m x 14m, superfície superior em Y = 0.00 m)
+      addMeshBox('Floor_Main', 0.0, 18.0, 0.0, 14.0, -0.10, 0.10, MAT.floor, marketRoot);
+
+      // 2. PAREDES PERIMETRAIS + ENTRADA CENTRAL SUL DE 3,2 m (X = 7,40 a 10,60 em Z = 14,00)
+      const wallGroup = new THREE.Group();
+      wallGroup.name = 'Walls_Perimeter';
+      addMeshBox('Wall_North', -0.20, 18.20, -0.20, 0.00, 0.0, 3.0, MAT.wall, wallGroup);
+      addBoxCollider('Wall_North', -0.20, 18.20, -0.20, 0.00, 0.0, 3.0);
+
+      addMeshBox('Wall_West', -0.20, 0.00, 0.00, 14.00, 0.0, 3.0, MAT.wall, wallGroup);
+      addBoxCollider('Wall_West', -0.20, 0.00, 0.00, 14.00, 0.0, 3.0);
+
+      addMeshBox('Wall_East', 18.00, 18.20, 0.00, 14.00, 0.0, 3.0, MAT.wall, wallGroup);
+      addBoxCollider('Wall_East', 18.00, 18.20, 0.00, 14.00, 0.0, 3.0);
+
+      addMeshBox('Wall_South_West', -0.20, 7.40, 14.00, 14.20, 0.0, 3.0, MAT.wall, wallGroup);
+      addBoxCollider('Wall_South_West', -0.20, 7.40, 14.00, 14.20, 0.0, 3.0);
+
+      addMeshBox('Wall_South_East', 10.60, 18.20, 14.00, 14.20, 0.0, 3.0, MAT.wall, wallGroup);
+      addBoxCollider('Wall_South_East', 10.60, 18.20, 14.00, 14.20, 0.0, 3.0);
+      marketRoot.add(wallGroup);
+
+      addMeshBox('Entrance_Threshold', 7.40, 10.60, 13.90, 14.10, 0.0, 0.01, MAT.cartZone, marketRoot);
+
+      // 3. ZONA DE INÍCIO / SPAWN (X = 9,00, Z = 12,45)
+      const startZone = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.01, 24), MAT.startZone);
+      startZone.name = 'Start_Zone';
+      startZone.position.set(toWorldX(9.00), 0.005, toWorldZ(12.45));
+      marketRoot.add(startZone);
+
+      // 4. HORTIFRUTI (Produce_Stand: X = 0,35..2,00, Z = 3,40..9,60, topo das caixas em Y = 0,85 m)
+      const produceGroup = new THREE.Group();
+      produceGroup.name = 'Produce_Stand';
+      addMeshBox('Produce_Stand_Base', 0.35, 2.00, 3.40, 9.60, 0.0, 0.75, MAT.produceBase, produceGroup);
+      for (let row = 0; row < 6; row++) {
+        const zStart = 3.55 + row * 1.0;
+        addMeshBox(`Produce_Crate_W_${row + 1}`, 0.45, 1.12, zStart, zStart + 0.80, 0.75, 0.10, MAT.produceCrate, produceGroup);
+        addMeshBox(`Produce_Crate_E_${row + 1}`, 1.18, 1.90, zStart, zStart + 0.80, 0.75, 0.10, MAT.produceCrate, produceGroup);
+      }
+      marketRoot.add(produceGroup);
+      addBoxCollider('Produce_Stand', 0.35, 2.00, 3.40, 9.60, 0.0, 0.85);
+
+      // 5. ESTRUTURA ABERTA DE PRATELEIRAS (Montantes verticais + superfícies horizontais)
+      function buildOpenShelfModule(name, x1, x2, z1, z2, height, boardMat) {
+        const group = new THREE.Group();
+        group.name = name;
+
+        // Zócalo / base inferior (Y = 0.00 .. 0.16 m)
+        addMeshBox(`${name}_BasePlinth`, x1, x2, z1, z2, 0.0, 0.16, MAT.shelfPost, group);
+
+        // Painel divisor central fino (4 cm de espessura) para leitura visual sem bloquear as bandejas laterais
+        const midX = (x1 + x2) / 2;
+        addMeshBox(`${name}_CenterSpine`, midX - 0.02, midX + 0.02, z1 + 0.06, z2 - 0.06, 0.16, height - 0.20, MAT.shelfPost, group);
+
+        // 6 Montantes verticais (colunas 6x6 cm nas extremidades norte, centro e sul)
+        const zPosts = [z1 + 0.05, (z1 + z2) / 2, z2 - 0.05];
+        const xPosts = [x1 + 0.04, x2 - 0.04];
+        let postIdx = 1;
+        zPosts.forEach((zp) => {
+          xPosts.forEach((xp) => {
+            addMeshBox(`${name}_Post_${postIdx++}`, xp - 0.03, xp + 0.03, zp - 0.03, zp + 0.03, 0.0, height, MAT.shelfPost, group);
+          });
+        });
+
+        // Superfícies horizontais abertas (bandejas em Y_top = 0.48m, 0.88m, 1.26m e 1.60m)
+        const shelfTops = [0.48, 0.88, 1.26, height];
+        shelfTops.forEach((yTop, idx) => {
+          const thickness = 0.04;
+          addMeshBox(`${name}_Tier_${idx + 1}`, x1, x2, z1, z2, yTop - thickness, thickness, boardMat, group);
+        });
+
+        marketRoot.add(group);
+        addBoxCollider(name, x1, x2, z1, z2, 0.0, height);
+        return group;
+      }
+
+      // Prateleira A (X = 4,00..5,20, Z = 3,40..9,60, Alt = 1,60 m)
+      buildOpenShelfModule('Shelf_A', 4.00, 5.20, 3.40, 9.60, 1.60, MAT.shelfBoard);
+
+      // Prateleira B (X = 7,50..8,70, Z = 3,40..9,60, Alt = 1,60 m)
+      buildOpenShelfModule('Shelf_B', 7.50, 8.70, 3.40, 9.60, 1.60, MAT.shelfBoard);
+
+      // Módulo Alto do Cereal (Shelf_B_HighTarget: X = 7,50..8,70, Z = 4,625..5,675, topo em Y = 2,25 m)
+      const highTargetGroup = new THREE.Group();
+      highTargetGroup.name = 'Shelf_B_HighTarget';
+
+      const hx1 = 7.50, hx2 = 8.70, hz1 = 4.625, hz2 = 5.675;
+      // 4 montantes verticais do módulo alto (de Y = 1,60 m até Y = 2,25 m)
+      const highCorners = [
+        [hx1 + 0.04, hz1 + 0.04],
+        [hx2 - 0.04, hz1 + 0.04],
+        [hx1 + 0.04, hz2 - 0.04],
+        [hx2 - 0.04, hz2 - 0.04]
+      ];
+      highCorners.forEach(([cx, cz], idx) => {
+        addMeshBox(`Shelf_B_HighPost_${idx + 1}`, cx - 0.03, cx + 0.03, cz - 0.03, cz + 0.03, 1.60, 0.65, MAT.shelfHighPost, highTargetGroup);
+      });
+      // Bandeja intermediária (Y = 1,90..1,94 m) e Bandeja de topo (Y = 2,20..2,25 m)
+      addMeshBox('Shelf_B_HighMidBoard', hx1, hx2, hz1, hz2, 1.90, 0.04, MAT.shelfHighBoard, highTargetGroup);
+      addMeshBox('Shelf_B_HighTopBoard', hx1, hx2, hz1, hz2, 2.20, 0.05, MAT.shelfHighBoard, highTargetGroup);
+
+      marketRoot.add(highTargetGroup);
+      addBoxCollider('Shelf_B_HighTarget', hx1, hx2, hz1, hz2, 1.60, 0.65);
+
+      // Zona de apoio da escada UNILATERAL (Lado Leste de Shelf_B: X = 8,70..9,40 m, Z = 4,625..5,675 m)
+      addMeshBox('Shelf_B_LadderDropZone', 8.70, 9.40, 4.625, 5.675, 0.0, 0.01, MAT.ladderZone, marketRoot);
+
+      // Prateleira C (X = 11,00..12,20, Z = 3,40..9,60, Alt = 1,60 m)
+      buildOpenShelfModule('Shelf_C', 11.00, 12.20, 3.40, 9.60, 1.60, MAT.shelfBoard);
+
+      // Prateleira Lateral / Limpeza (X = 14,60..15,42, Z = 3,40..9,60, Alt = 1,60 m)
+      buildOpenShelfModule('Shelf_Cleaning', 14.60, 15.42, 3.40, 9.60, 1.60, MAT.shelfCleanBoard);
+
+      // 6. REFRIGERADORES TRASEIROS DECORATIVOS (Z = 0,35..1,35, Alt = 2,00 m)
+      function buildFridge(name, x1, x2, z1, z2) {
+        const g = new THREE.Group();
+        g.name = name;
+        addMeshBox(`${name}_Cabinet`, x1, x2, z1, z2, 0.0, 2.00, MAT.fridgeBody, g);
+        addMeshBox(`${name}_GlassFront`, x1 + 0.08, x2 - 0.08, z2 - 0.02, z2 + 0.02, 0.20, 1.65, MAT.fridgeGlass, g);
+        marketRoot.add(g);
+        addBoxCollider(name, x1, x2, z1, z2, 0.0, 2.00);
+      }
+      buildFridge('Fridge_Dairy', 2.00, 6.20, 0.35, 1.35);
+      buildFridge('Fridge_Drinks', 6.55, 9.65, 0.35, 1.35);
+      buildFridge('Freezer_Display', 10.00, 13.30, 0.35, 1.35);
+
+      // 7. ESTACIONAMENTO DO CARRINHO (X = 0,35..2,45, Z = 10,45..11,55)
+      const cartParking = new THREE.Group();
+      cartParking.name = 'Cart_Parking';
+      addMeshBox('Cart_Parking_Pad', 0.35, 2.45, 10.45, 11.55, 0.0, 0.015, MAT.cartZone, cartParking);
+      addMeshBox('Cart_Parking_RailBack', 0.35, 2.45, 10.45, 10.52, 0.0, 0.85, MAT.shelfPost, cartParking);
+      marketRoot.add(cartParking);
+
+      // 8. ESCADA PORTÁTIL E ESCADA FIXA (Footprint exata: 0,70 m [X] x 1,50 m [Y] x 0,90 m [Z])
+      // Orientada com degraus no lado +X (subida em direção a -X, de frente para a Prateleira B)
+      function createLadderGroup(name, centerX, centerZ) {
+        const ladder = new THREE.Group();
+        ladder.name = name;
+        ladder.position.set(toWorldX(centerX), 0.0, toWorldZ(centerZ));
+
+        // Laterais em Z = -0.425 e Z = +0.425 (espessura 0.05m -> Z total de -0.45 a +0.45 = 0.90m)
+        // Largura em X de -0.35 a +0.35 = 0.70m
+        const frontLegL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.46, 0.05), MAT.ladderWood);
+        frontLegL.position.set(0.32, 0.73, -0.425);
+        const frontLegR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.46, 0.05), MAT.ladderWood);
+        frontLegR.position.set(0.32, 0.73, 0.425);
+
+        const backLegL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.46, 0.05), MAT.ladderWood);
+        backLegL.position.set(-0.32, 0.73, -0.425);
+        const backLegR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.46, 0.05), MAT.ladderWood);
+        backLegR.position.set(-0.32, 0.73, 0.425);
+
+        // Plataforma de topo (Y = 1.46 .. 1.50 m, X = -0.35 .. +0.35 m, Z = -0.45 .. +0.45 m)
+        const topPlatform = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.04, 0.90), MAT.ladderWood);
+        topPlatform.position.set(0.0, 1.48, 0.0);
+
+        ladder.add(frontLegL, frontLegR, backLegL, backLegR, topPlatform);
+
+        // 4 Degraus escalonados do lado +X subindo para -X
+        for (let s = 1; s <= 4; s++) {
+          const stepY = s * 0.30;
+          const stepX = 0.32 - s * 0.06;
+          const step = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.88), MAT.ladderWood);
+          step.position.set(stepX, stepY, 0.0);
+          ladder.add(step);
+        }
+        return ladder;
+      }
+
+      addMeshBox('PortableLadder_InitialSpot', 8.85, 10.05, 10.15, 11.05, 0.0, 0.015, MAT.ladderZone, marketRoot);
+      const portableLadder = createLadderGroup('PortableLadder_Mesh', 9.45, 10.60);
+      marketRoot.add(portableLadder);
+
+      const fixedLadder = createLadderGroup('FixedLadder_Prop', 0.85, 2.05);
+      marketRoot.add(fixedLadder);
+      addBoxCollider('FixedLadder_Prop', 0.50, 1.20, 1.60, 2.50, 0.0, 1.50);
+
+      // 9. PRODUTOS DE TESTE COM ALTURAS E BORDAS CORRIGIDAS
+      // (1) Banana: Topo das caixas do hortifruti = 0,85 m | Altura = 0,18 m | Centro Y = 0,94 m (base em Y = 0,85 m)
+      const itemBanana = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.35), MAT.banana);
+      itemBanana.name = 'Item_Banana';
+      itemBanana.position.set(toWorldX(1.20), 0.94, toWorldZ(5.15));
+      marketRoot.add(itemBanana);
+
+      // (2) Maçã: Topo da prateleira Shelf_A_Tier_2 = 0,88 m | Raio = 0,12 m (Alt 0,24 m) | Centro Y = 1,00 m (base em Y = 0,88 m)
+      // Posicionada próxima à borda leste acessível pelo Corredor 2 (X = 5,00 m, Z = 5,40 m)
+      const itemApple = new THREE.Mesh(new THREE.SphereGeometry(0.12, 18, 14), MAT.apple);
+      itemApple.name = 'Item_Apple';
+      itemApple.position.set(toWorldX(5.00), 1.00, toWorldZ(5.40));
+      marketRoot.add(itemApple);
+
+      // (3) Cereal: Topo do módulo Shelf_B_HighTarget = 2,25 m | Alt = 0,42 m | Centro Y = 2,46 m (base em Y = 2,25 m)
+      // Posicionado próximo à borda leste acessível (X = 8,55 m, Z = 5,15 m) junto à zona da escada (X = 8,70..9,40 m)
+      const itemCereal = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.32), MAT.cereal);
+      itemCereal.name = 'Item_Cereal';
+      itemCereal.position.set(toWorldX(8.55), 2.46, toWorldZ(5.15));
+      marketRoot.add(itemCereal);
+
+      marketRoot.add(collidersGroup);
+      return marketRoot;
+    }
+
+    // Desenha a Planta Baixa Técnica 2D Atualizada (18 x 14 m)
+    function drawUpdatedFloorplan() {
+      const canvas = document.getElementById('floorplanCanvas');
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width;
+      const H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      const pad = 24;
+      const scale = Math.min((W - pad * 2) / 18, (H - pad * 2) / 14);
+      const ox = (W - 18 * scale) / 2;
+      const oy = (H - 14 * scale) / 2;
+      const px = (x) => ox + x * scale;
+      const pz = (z) => oy + z * scale;
+
+      // Fundo do piso (18 x 14 m)
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(px(0), pz(0), 18 * scale, 14 * scale);
+
+      // Grade de 1m x 1m
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= 18; x++) {
+        ctx.beginPath(); ctx.moveTo(px(x), pz(0)); ctx.lineTo(px(x), pz(14)); ctx.stroke();
+      }
+      for (let z = 0; z <= 14; z++) {
+        ctx.beginPath(); ctx.moveTo(px(0), pz(z)); ctx.lineTo(px(18), pz(z)); ctx.stroke();
+      }
+
+      function drawRect(x1, z1, x2, z2, fill, stroke, label = '', dashed = false) {
+        ctx.save();
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.5;
+        if (dashed) ctx.setLineDash([4, 3]);
+        ctx.fillRect(px(x1), pz(z1), (x2 - x1) * scale, (z2 - z1) * scale);
+        ctx.strokeRect(px(x1), pz(z1), (x2 - x1) * scale, (z2 - z1) * scale);
+        if (label) {
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 8.5px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, px((x1 + x2) / 2), pz((z1 + z2) / 2) + 3);
+        }
+        ctx.restore();
+      }
+
+      // Expositores refrigerados
+      drawRect(2.0, 0.35, 6.2, 1.35, '#bae6fd', '#0284c7', 'LATICÍNIOS');
+      drawRect(6.55, 0.35, 9.65, 1.35, '#bae6fd', '#0284c7', 'BEBIDAS');
+      drawRect(10.0, 0.35, 13.3, 1.35, '#bae6fd', '#0284c7', 'CONGELADOS');
+
+      // Hortifruti e Prateleiras
+      drawRect(0.35, 3.4, 2.0, 9.6, '#bbf7d0', '#16a34a', 'HORTIFRUTI');
+      drawRect(4.0, 3.4, 5.2, 9.6, '#cbd5e1', '#475569', 'PRAT. A');
+      drawRect(7.5, 3.4, 8.7, 9.6, '#cbd5e1', '#475569', 'PRAT. B');
+      drawRect(7.5, 4.625, 8.7, 5.675, '#fde68a', '#d97706', 'ALVO 2,25m');
+      // Zona unilateral da escada (X = 8,70..9,40)
+      drawRect(8.70, 4.625, 9.40, 5.675, 'rgba(245, 158, 11, 0.28)', '#d97706', 'ESC', true);
+      drawRect(11.0, 3.4, 12.2, 9.6, '#cbd5e1', '#475569', 'PRAT. C');
+      drawRect(14.6, 3.4, 15.42, 9.6, '#fed7aa', '#ea580c', 'LIMP.');
+
+      // Zonas de apoio
+      drawRect(0.35, 10.45, 2.45, 11.55, '#dbeafe', '#2563eb', 'CARRINHOS');
+      drawRect(8.85, 10.15, 10.05, 11.05, '#fef3c7', '#d97706', 'ESCADA INI.', true);
+      drawRect(0.50, 1.60, 1.20, 2.50, '#fef3c7', '#b45309', 'ESC. FIXA');
+
+      // Paredes e Entrada Sul (7.4 .. 10.6)
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(px(7.4), pz(14));
+      ctx.lineTo(px(0), pz(14));
+      ctx.lineTo(px(0), pz(0));
+      ctx.lineTo(px(18), pz(0));
+      ctx.lineTo(px(18), pz(14));
+      ctx.lineTo(px(10.6), pz(14));
+      ctx.stroke();
+
+      // Itens ativos
+      function drawDot(x, z, color, text) {
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(px(x), pz(z), 5.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, px(x), pz(z) + 3);
+      }
+      drawDot(1.20, 5.15, '#15803d', '1');
+      drawDot(5.00, 5.40, '#dc2626', '2');
+      drawDot(8.55, 5.15, '#d97706', '3');
+      drawDot(9.00, 12.45, '#0f172a', 'P');
+
+      // Legenda de topo
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('0,0 (NO) | Norte = -Z', px(0), pz(0) - 6);
+      ctx.textAlign = 'right';
+      ctx.fillText('18,0 × 14,0 m | Entrada 3,2 m', px(18), pz(0) - 6);
+    }
+
+    // Exporta para GLB binário e recarrega via GLTFLoader para validar o arquivo final real
+    function exportAndValidateGLB() {
+      const sourceModel = createBabyMarketScene();
+      const exporter = new GLTFExporter();
+
+      exporter.parse(
+        sourceModel,
+        (glbArrayBuffer) => {
+          validatedGlbBuffer = glbArrayBuffer;
+          const loader = new GLTFLoader();
+          loader.parse(glbArrayBuffer, '', (loadedGltf) => {
+            if (currentSceneModel) scene.remove(currentSceneModel);
+            currentSceneModel = loadedGltf.scene;
+            scene.add(currentSceneModel);
+            runPostLoadChecks(currentSceneModel, glbArrayBuffer.byteLength);
+          });
+        },
+        (err) => console.error('Erro na exportação GLB:', err),
+        { binary: true }
+      );
+    }
+
+    function runPostLoadChecks(root, byteLength) {
+      root.updateMatrixWorld(true);
+      const listEl = document.getElementById('validationList');
+      listEl.innerHTML = '';
+
+      function bboxOf(name) {
+        const obj = root.getObjectByName(name);
+        if (!obj) return null;
+        return new THREE.Box3().setFromObject(obj);
+      }
+
+      const checks = [];
+      const near = (a, b, tol = 0.015) => Math.abs(a - b) <= tol;
+
+      // 1. Piso 18x14m e Y=0
+      const bFloor = bboxOf('Floor_Main');
+      const floorOk = bFloor && near(bFloor.max.x - bFloor.min.x, 18.0) && near(bFloor.max.z - bFloor.min.z, 14.0) && near(bFloor.max.y, 0.0);
+      checks.push({
+        pass: floorOk,
+        text: `Floor_Main: ${(bFloor.max.x - bFloor.min.x).toFixed(2)}m × ${(bFloor.max.z - bFloor.min.z).toFixed(2)}m | Topo Y=${bFloor.max.y.toFixed(2)}m`
+      });
+
+      // 2. Prateleiras com estrutura aberta (montantes + bandejas)
+      const shelfATier2 = bboxOf('Shelf_A_Tier_2');
+      const shelfAPost1 = bboxOf('Shelf_A_Post_1');
+      checks.push({
+        pass: !!(shelfATier2 && shelfAPost1 && near(shelfATier2.max.y, 0.88)),
+        text: `Geometria Prateleiras: Montantes + Bandejas abertas (Shelf_A_Tier_2 topo Y=${shelfATier2 ? shelfATier2.max.y.toFixed(2) : 'N/A'}m)`
+      });
+
+      // 3. Banana encostando no topo das caixas do hortifruti (Y = 0,85 m)
+      const bBanana = bboxOf('Item_Banana');
+      const bProduce = bboxOf('Produce_Stand');
+      const bananaCenter = new THREE.Vector3();
+      bBanana.getCenter(bananaCenter);
+      checks.push({
+        pass: near(bBanana.min.y, bProduce.max.y) && near(bBanana.min.y, 0.85) && near(bananaCenter.y, 0.94),
+        text: `Item_Banana: Centro Y=${bananaCenter.y.toFixed(2)}m | Base Y=${bBanana.min.y.toFixed(2)}m (Topo Hortifruti=${bProduce.max.y.toFixed(2)}m)`
+      });
+
+      // 4. Maçã apoiada na bandeja Y=0,88m e acessível na borda leste (X=5,00m / worldX=-4,00m)
+      const bApple = bboxOf('Item_Apple');
+      const appleCenter = new THREE.Vector3();
+      bApple.getCenter(appleCenter);
+      checks.push({
+        pass: near(appleCenter.y, 1.00) && near(bApple.min.y, 0.88) && near(appleCenter.x, -4.00),
+        text: `Item_Apple: Centro Y=${appleCenter.y.toFixed(2)}m | Base Y=${bApple.min.y.toFixed(2)}m | X=${(appleCenter.x + 9).toFixed(2)}m (Borda Leste)`
+      });
+
+      // 5. Módulo alto terminando em Y=2,25m e Cereal com centro em Y=2,46m na borda leste (X=8,55m)
+      const bHighTop = bboxOf('Shelf_B_HighTopBoard');
+      const bCereal = bboxOf('Item_Cereal');
+      const cerealCenter = new THREE.Vector3();
+      bCereal.getCenter(cerealCenter);
+      checks.push({
+        pass: near(bHighTop.max.y, 2.25) && near(cerealCenter.y, 2.46) && near(bCereal.min.y, 2.25) && near(cerealCenter.x, -0.45),
+        text: `Item_Cereal: Centro Y=${cerealCenter.y.toFixed(2)}m | Base Y=${bCereal.min.y.toFixed(2)}m | X=${(cerealCenter.x + 9).toFixed(2)}m (Borda Leste)`
+      });
+
+      // 6. Zona unilateral da escada (X = 8,70..9,40m, Z = 4,625..5,675m) e corredor livre >= 1,60m
+      const bDrop = bboxOf('Shelf_B_LadderDropZone');
+      const bShelfC = bboxOf('Shelf_C');
+      const freeCorridor3 = bShelfC.min.x - bDrop.max.x;
+      checks.push({
+        pass: near(bDrop.min.x + 9, 8.70) && near(bDrop.max.x + 9, 9.40) && near(freeCorridor3, 1.60),
+        text: `Shelf_B_LadderDropZone: X=${(bDrop.min.x + 9).toFixed(2)}..${(bDrop.max.x + 9).toFixed(2)}m | Passagem Livre C3=${freeCorridor3.toFixed(2)}m`
+      });
+
+      // 7. Dimensões da escada portátil (0,70 x 1,50 x 0,90 m)
+      const bLadder = bboxOf('PortableLadder_Mesh');
+      const lw = bLadder.max.x - bLadder.min.x;
+      const lh = bLadder.max.y - bLadder.min.y;
+      const ld = bLadder.max.z - bLadder.min.z;
+      checks.push({
+        pass: near(lw, 0.70) && near(lh, 1.50) && near(ld, 0.90),
+        text: `PortableLadder_Mesh: ${lw.toFixed(2)}m (X) × ${lh.toFixed(2)}m (Y) × ${ld.toFixed(2)}m (Z)`
+      });
+
+      // 8. Colisores invisíveis via glTF alphaMode BLEND (opacity = 0) e identificáveis
+      const colGroup = root.getObjectByName('Colliders_Group');
+      const allColsOk = colGroup && colGroup.children.length === 15 && colGroup.children.every(
+        (c) => c.name.startsWith('Collider_') && c.userData.isCollider === true && c.material.transparent === true && c.material.opacity === 0
+      );
+      checks.push({
+        pass: allColsOk,
+        text: `Colisores glTF: ${colGroup ? colGroup.children.length : 0} caixas identificadas (opacity=0, userData.isCollider=true)`
+      });
+
+      // 9. Tamanho do binário GLB
+      checks.push({
+        pass: byteLength > 1000,
+        text: `Arquivo GLB Binário Autocontido: ${(byteLength / 1024).toFixed(1)} KB validado no GLTFLoader`
+      });
+
+      checks.forEach((c) => {
+        const li = document.createElement('li');
+        li.className = `val-item ${c.pass ? 'pass' : 'fail'}`;
+        li.textContent = `${c.pass ? '✔' : '✖'} ${c.text}`;
+        listEl.appendChild(li);
+      });
+    }
+
+    drawUpdatedFloorplan();
+    exportAndValidateGLB();
+
+    // Controles de Interface
+    document.getElementById('toggleCollidersBtn').addEventListener('click', (e) => {
+      debugWireframeGroup.visible = !debugWireframeGroup.visible;
+      e.target.textContent = debugWireframeGroup.visible
+        ? 'Ocultar Wireframe dos Colisores'
+        : 'Mostrar Wireframe dos Colisores';
+    });
+
+    document.getElementById('togglePanelBtn').addEventListener('click', () => {
+      document.getElementById('side-panel').classList.toggle('hidden');
+      window.dispatchEvent(new Event('resize'));
+    });
+
+    document.getElementById('downloadGlbBtn').addEventListener('click', () => {
+      if (!validatedGlbBuffer) return;
+      const blob = new Blob([validatedGlbBuffer], { type: 'model/gltf-binary' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'BabyMarket_Cenario_v1.glb';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
