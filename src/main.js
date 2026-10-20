@@ -669,11 +669,15 @@ function setupControls() {
     return Math.min(Math.max(value, min), max);
   }
   function placeFloatingJoystick(e) {
-    // A base visual acompanha o ponto inicial do dedo; a zona de movimento é a metade esquerda.
+    // O joystick só pode aparecer no quadrante inferior esquerdo; a faixa superior fica livre.
     const halfWidth = joystickBase.offsetWidth / 2;
     const halfHeight = joystickBase.offsetHeight / 2;
-    const visualX = clamp(e.clientX, halfWidth + 4, Math.max(halfWidth + 4, innerWidth * 0.5 - halfWidth - 4));
-    const visualY = clamp(e.clientY, halfHeight + 4, Math.max(halfHeight + 4, innerHeight - halfHeight - 20));
+    const minX = halfWidth + 4;
+    const maxX = Math.max(minX, innerWidth * 0.5 - halfWidth - 4);
+    const minY = innerHeight * 0.5 + halfHeight + 4;
+    const maxY = Math.max(minY, innerHeight - halfHeight - 20);
+    const visualX = clamp(e.clientX, minX, maxX);
+    const visualY = clamp(e.clientY, minY, maxY);
     joystick.style.left = (visualX - halfWidth) + "px";
     joystick.style.top = (visualY - halfHeight) + "px";
     joystick.classList.add("active");
@@ -701,6 +705,8 @@ function setupControls() {
     if (state !== "PLAYING") return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (e.clientX < innerWidth * 0.5) {
+      // A metade superior esquerda não aciona o joystick nem inicia a órbita da câmera.
+      if (e.clientY < innerHeight * 0.5) return;
       if (joystickPointerId !== null) return;
       joystickPointerId = e.pointerId;
       placeFloatingJoystick(e);
