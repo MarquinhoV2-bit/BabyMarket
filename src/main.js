@@ -26,14 +26,17 @@ css.textContent = `
   li.done .bm-check { color:#052e16; border-color:#86efac; background:#86efac; }
   #list-help { margin-top:8px; color:#cbd5e1; font-size:12px; }
   #interaction-message { position:absolute; left:50%; bottom:calc(126px + env(safe-area-inset-bottom)); transform:translateX(-50%); width:max-content; max-width:calc(100vw - 22px); padding:9px 12px; border-radius:11px; background:#0f172ae8; border:1px solid #ffffff26; text-align:center; font-size:13px; line-height:1.35; }
-  #mobile-controls { display:flex; position:absolute; left:11px; right:11px; bottom:max(12px, env(safe-area-inset-bottom)); align-items:flex-end; justify-content:space-between; pointer-events:auto; }
-  #dpad { display:grid; grid-template-columns:repeat(3,46px); grid-template-rows:repeat(2,46px); gap:5px; }
-  .bm-dir { width:46px; height:46px; background:#0f172ad9; color:white; font-size:20px; }
-  #move-up { grid-column:2; grid-row:1; } #move-left { grid-column:1; grid-row:2; } #move-down { grid-column:2; grid-row:2; } #move-right { grid-column:3; grid-row:2; }
+  #mobile-controls { display:flex; position:absolute; left:11px; right:11px; bottom:max(12px, env(safe-area-inset-bottom)); align-items:flex-end; justify-content:space-between; pointer-events:none; }
+  #joystick { display:flex; flex-direction:column; align-items:center; gap:3px; pointer-events:auto; touch-action:none; user-select:none; -webkit-user-select:none; }
+  #joystick-base { position:relative; width:112px; height:112px; border:2px solid rgba(255,255,255,.58); border-radius:50%; background:radial-gradient(circle, rgba(148,163,184,.42), rgba(15,23,42,.76)); box-shadow:0 4px 18px #0005, inset 0 0 0 7px #ffffff0d; touch-action:none; }
+  #joystick-knob { position:absolute; left:50%; top:50%; width:44px; height:44px; transform:translate(-50%,-50%); border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#e2e8f0,#64748b); box-shadow:0 3px 10px #0007; pointer-events:none; }
+  #joystick-label { color:#fff; font-size:10px; font-weight:900; letter-spacing:.08em; text-shadow:0 2px 5px #000; pointer-events:none; }
   #interact-btn { min-width:118px; min-height:51px; padding:9px 12px; background:linear-gradient(#fbbf24,#f59e0b); color:#422006; border-color:#fde68a; font-size:12px; }
   #interact-btn:disabled { display:none; }
   #controls-help { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); font-size:11px; background:#0f172abf; padding:7px 10px; border-radius:8px; white-space:nowrap; }
-  #fullscreen-btn { color:white; background:rgba(15,23,42,.91); padding:10px 12px; min-height:43px; }
+  #fullscreen-btn, #camera-reset-btn { color:white; background:rgba(15,23,42,.91); padding:10px 12px; min-height:43px; white-space:nowrap; }
+  #interact-btn { pointer-events:auto; }
+  #camera-reset-btn { border:1px solid rgba(255,255,255,.2); border-radius:12px; font-weight:850; cursor:pointer; touch-action:manipulation; }
   #rotate-notice { display:none; position:fixed; inset:0; z-index:100; align-items:center; justify-content:center; text-align:center; padding:24px; color:#fff; background:#0f172af5; font-weight:900; font-size:clamp(22px,5vw,34px); }
   @media (orientation:portrait) and (max-width:900px) { body.bm-require-landscape #rotate-notice { display:flex; } }
   @media (orientation:landscape) and (max-height:500px) {
@@ -43,9 +46,11 @@ css.textContent = `
     #list-toggle, #fullscreen-btn { min-height:34px; padding:7px 9px; font-size:12px; }
     #list-panel { top:calc(max(5px, env(safe-area-inset-top)) + 40px); right:6px; }
     #mobile-controls { left:7px; right:7px; bottom:max(5px, env(safe-area-inset-bottom)); }
-    #dpad { grid-template-columns:repeat(3,38px); grid-template-rows:repeat(2,34px); gap:3px; }
-    .bm-dir { width:38px; height:34px; border-radius:8px; font-size:16px; }
+    #joystick-base { width:94px; height:94px; }
+    #joystick-knob { width:38px; height:38px; }
+    #joystick-label { font-size:9px; }
     #interact-btn { min-width:104px; min-height:42px; padding:6px 9px; }
+    #fullscreen-btn, #camera-reset-btn { min-height:34px; padding:7px 8px; font-size:11px; border-radius:8px; }
     #interaction-message { bottom:calc(88px + env(safe-area-inset-bottom)); font-size:11px; padding:6px 9px; }
     #controls-help { display:none; }
   }
@@ -72,7 +77,7 @@ hud.id = "hud";
 hud.innerHTML = `
   <div id="hud-top">
     <div id="timer-card" class="bm-panel">⏱️ <span id="timer-value">90</span></div>
-    <div style="display:flex;gap:6px;align-items:flex-start"><button id="list-toggle">📝 LISTA <span id="list-count">0/3</span></button><button id="fullscreen-btn" class="bm-panel" type="button" aria-label="Ativar tela cheia">⛶ TELA CHEIA</button></div>
+    <div style="display:flex;gap:6px;align-items:flex-start"><button id="list-toggle">📝 LISTA <span id="list-count">0/3</span></button><button id="camera-reset-btn" class="bm-panel" type="button" aria-label="Recentralizar câmera">↻ VISÃO</button><button id="fullscreen-btn" class="bm-panel" type="button" aria-label="Ativar tela cheia">⛶ TELA CHEIA</button></div>
   </div>
   <section id="list-panel" class="bm-panel">
     <h2>Lista de compras</h2>
@@ -85,11 +90,9 @@ hud.innerHTML = `
   </section>
   <div id="interaction-message">Explore o supermercado.</div>
   <div id="mobile-controls">
-    <div id="dpad">
-      <button class="bm-dir" id="move-up" data-dir="up" aria-label="Para frente">▲</button>
-      <button class="bm-dir" id="move-left" data-dir="left" aria-label="Esquerda">◀</button>
-      <button class="bm-dir" id="move-down" data-dir="down" aria-label="Para trás">▼</button>
-      <button class="bm-dir" id="move-right" data-dir="right" aria-label="Direita">▶</button>
+    <div id="joystick" aria-label="Analógico virtual para movimentação">
+      <div id="joystick-base"><div id="joystick-knob"></div></div>
+      <span id="joystick-label">MOVER</span>
     </div>
     <button id="interact-btn" disabled>INTERAGIR</button>
   </div>
@@ -111,11 +114,21 @@ const listHelp = hud.querySelector("#list-help");
 const interactionMessage = hud.querySelector("#interaction-message");
 const interactButton = hud.querySelector("#interact-btn");
 const fullscreenButton = hud.querySelector("#fullscreen-btn");
+const cameraResetButton = hud.querySelector("#camera-reset-btn");
+const joystickBase = hud.querySelector("#joystick-base");
+const joystickKnob = hud.querySelector("#joystick-knob");
+let joystickPointerId = null;
+function resetJoystick() {
+  input.analogX = 0;
+  input.analogY = 0;
+  joystickPointerId = null;
+  joystickKnob.style.transform = "translate(-50%,-50%)";
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xcdeafe);
 const camera = new THREE.PerspectiveCamera(
-  62,
+  68,
   innerWidth / innerHeight,
   0.1,
   140
@@ -143,9 +156,16 @@ const MOVE_SPEED = 3.35;
 const LADDER_SPEED = 2.45;
 const ITEM_REACH = 1.42;
 const HIGH_REACH = 1.48;
-const input = { up: false, down: false, left: false, right: false };
+const input = { up: false, down: false, left: false, right: false, analogX: 0, analogY: 0 };
 const targetCam = new THREE.Vector3();
 const targetLook = new THREE.Vector3();
+const CAMERA_DISTANCE = 3.25;
+const INITIAL_CAMERA_PITCH = 0.52;
+let cameraYaw = 0;
+let cameraPitch = INITIAL_CAMERA_PITCH;
+let cameraPointerId = null;
+let lastCameraX = 0;
+let lastCameraY = 0;
 
 let environment = null;
 let player = null;
@@ -507,6 +527,9 @@ async function startGame() {
   player.position.copy(startPosition);
   player.position.y = 0;
   player.rotation.set(0, 0, 0);
+  cameraYaw = 0;
+  cameraPitch = INITIAL_CAMERA_PITCH;
+  resetJoystick();
   timeLeft = ROUND_SECONDS;
   lastTimerText = -1;
   Object.keys(input).forEach((k) => (input[k] = false));
@@ -537,31 +560,32 @@ async function startGame() {
 }
 function updateCamera(alpha) {
   if (!player) return;
+  const horizontalDistance = CAMERA_DISTANCE * Math.cos(cameraPitch);
   targetCam.set(
-    player.position.x,
-    player.position.y + 2.75,
-    player.position.z + 4.35
+    player.position.x + Math.sin(cameraYaw) * horizontalDistance,
+    player.position.y + 0.72 + CAMERA_DISTANCE * Math.sin(cameraPitch),
+    player.position.z + Math.cos(cameraYaw) * horizontalDistance
   );
-  targetLook.set(
-    player.position.x,
-    player.position.y + 0.72,
-    player.position.z - 1.7
-  );
+  targetLook.set(player.position.x, player.position.y + 0.83, player.position.z);
   if (alpha >= 1) camera.position.copy(targetCam);
   else camera.position.lerp(targetCam, alpha);
   camera.lookAt(targetLook);
 }
 function movePlayer(dt) {
   if (state !== "PLAYING" || !player || climbing) return;
-  let dx = Number(input.right) - Number(input.left),
-    dz = Number(input.down) - Number(input.up);
-  if (!dx && !dz) return;
-  const len = Math.hypot(dx, dz);
-  dx /= len;
-  dz /= len;
+  const strafe = Number(input.right) - Number(input.left) + input.analogX;
+  const forward = Number(input.up) - Number(input.down) - input.analogY;
+  if (Math.abs(strafe) < 0.001 && Math.abs(forward) < 0.001) return;
+  const len = Math.hypot(strafe, forward);
+  const localX = strafe / len;
+  const localForward = forward / len;
+  const sinYaw = Math.sin(cameraYaw);
+  const cosYaw = Math.cos(cameraYaw);
+  const dx = localX * cosYaw - localForward * sinYaw;
+  const dz = -localX * sinYaw - localForward * cosYaw;
   const speed = ladderCarried ? LADDER_SPEED : MOVE_SPEED;
-  const nx = player.position.x + dx * speed * dt,
-    nz = player.position.z + dz * speed * dt;
+  const nx = player.position.x + dx * speed * dt;
+  const nz = player.position.z + dz * speed * dt;
   if (canStand(nx, player.position.z)) player.position.x = nx;
   if (canStand(player.position.x, nz)) player.position.z = nz;
   if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
@@ -605,14 +629,8 @@ async function requestImmersiveMode() {
 }
 function setupControls() {
   const keyMap = {
-    ArrowUp: "up",
-    KeyW: "up",
-    ArrowDown: "down",
-    KeyS: "down",
-    ArrowLeft: "left",
-    KeyA: "left",
-    ArrowRight: "right",
-    KeyD: "right",
+    ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
+    ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
   };
   window.addEventListener("keydown", (e) => {
     if (keyMap[e.code]) {
@@ -623,6 +641,11 @@ function setupControls() {
       e.preventDefault();
       interact();
     }
+    if (e.code === "KeyC") {
+      cameraYaw = 0;
+      cameraPitch = INITIAL_CAMERA_PITCH;
+      updateCamera(1);
+    }
     if (e.code === "Escape") listPanel.classList.remove("open");
   });
   window.addEventListener("keyup", (e) => {
@@ -631,36 +654,85 @@ function setupControls() {
       e.preventDefault();
     }
   });
-  window.addEventListener("blur", () =>
-    Object.keys(input).forEach((k) => (input[k] = false))
-  );
-  hud.querySelectorAll(".bm-dir").forEach((btn) => {
-    const dir = btn.dataset.dir;
-    const release = (e) => {
-      if (e) e.preventDefault();
-      input[dir] = false;
-    };
-    btn.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      input[dir] = true;
-      if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
-    });
-    btn.addEventListener("pointerup", release);
-    btn.addEventListener("pointercancel", release);
-    btn.addEventListener("lostpointercapture", release);
+  window.addEventListener("blur", () => {
+    Object.keys(input).forEach((k) => (input[k] = false));
+    resetJoystick();
+    cameraPointerId = null;
   });
-  interactButton.addEventListener("click", (e) => {
+  function updateJoystick(e) {
+    const rect = joystickBase.getBoundingClientRect();
+    const maxDistance = (rect.width - joystickKnob.offsetWidth) * 0.48;
+    let dx = e.clientX - (rect.left + rect.width / 2);
+    let dy = e.clientY - (rect.top + rect.height / 2);
+    const distance = Math.hypot(dx, dy);
+    if (distance > maxDistance) {
+      const scale = maxDistance / distance;
+      dx *= scale;
+      dy *= scale;
+    }
+    const x = dx / maxDistance, y = dy / maxDistance;
+    input.analogX = Math.abs(x) < 0.09 ? 0 : x;
+    input.analogY = Math.abs(y) < 0.09 ? 0 : y;
+    joystickKnob.style.transform = "translate(calc(-50% + " + dx + "px),calc(-50% + " + dy + "px))";
+  }
+  joystickBase.addEventListener("pointerdown", (e) => {
     e.preventDefault();
-    interact();
+    joystickPointerId = e.pointerId;
+    if (joystickBase.setPointerCapture) joystickBase.setPointerCapture(e.pointerId);
+    updateJoystick(e);
   });
-  listToggle.addEventListener("click", () =>
-    listPanel.classList.toggle("open")
-  );
+  joystickBase.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== joystickPointerId) return;
+    e.preventDefault();
+    updateJoystick(e);
+  });
+  const releaseJoystick = (e) => {
+    if (e && e.pointerId !== joystickPointerId) return;
+    resetJoystick();
+  };
+  joystickBase.addEventListener("pointerup", releaseJoystick);
+  joystickBase.addEventListener("pointercancel", releaseJoystick);
+  joystickBase.addEventListener("lostpointercapture", releaseJoystick);
+
+  // Arraste o lado direito da tela para orbitar a câmera.
+  renderer.domElement.addEventListener("pointerdown", (e) => {
+    if (state !== "PLAYING" || e.clientX < innerWidth * 0.38) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    cameraPointerId = e.pointerId;
+    lastCameraX = e.clientX;
+    lastCameraY = e.clientY;
+    if (renderer.domElement.setPointerCapture) renderer.domElement.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  renderer.domElement.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== cameraPointerId) return;
+    const deltaX = e.clientX - lastCameraX;
+    const deltaY = e.clientY - lastCameraY;
+    lastCameraX = e.clientX;
+    lastCameraY = e.clientY;
+    cameraYaw += deltaX * 0.006;
+    cameraPitch = THREE.MathUtils.clamp(cameraPitch + deltaY * 0.0045, 0.10, 0.92);
+    e.preventDefault();
+  });
+  const endCameraDrag = (e) => {
+    if (e && e.pointerId !== cameraPointerId) return;
+    cameraPointerId = null;
+  };
+  renderer.domElement.addEventListener("pointerup", endCameraDrag);
+  renderer.domElement.addEventListener("pointercancel", endCameraDrag);
+  renderer.domElement.addEventListener("lostpointercapture", endCameraDrag);
+
+  interactButton.addEventListener("click", (e) => { e.preventDefault(); interact(); });
+  listToggle.addEventListener("click", () => listPanel.classList.toggle("open"));
+  cameraResetButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    cameraYaw = 0;
+    cameraPitch = INITIAL_CAMERA_PITCH;
+    updateCamera(1);
+  });
   fullscreenButton.addEventListener("click", async () => {
     if (document.fullscreenElement) {
-      try {
-        await document.exitFullscreen();
-      } catch (e) {}
+      try { await document.exitFullscreen(); } catch (e) {}
     } else await requestImmersiveMode();
   });
   uiButton.addEventListener("click", startGame);
