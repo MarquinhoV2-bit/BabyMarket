@@ -710,7 +710,7 @@ function setupControls() {
     const deltaY = e.clientY - lastCameraY;
     lastCameraX = e.clientX;
     lastCameraY = e.clientY;
-    cameraYaw += deltaX * 0.006;
+    cameraYaw -= deltaX * 0.006;
     cameraPitch = THREE.MathUtils.clamp(cameraPitch + deltaY * 0.0045, 0.10, 0.92);
     e.preventDefault();
   });
