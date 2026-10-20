@@ -7,6 +7,13 @@ css.textContent = `
   #game-canvas { position:fixed; inset:0; z-index:0; }
   #game-canvas canvas { display:block; width:100%; height:100%; }
   #ui-subtitle { color:#dbeafe; max-width:520px; margin:0 0 12px; padding:0 12px; text-align:center; line-height:1.45; }
+  #ui-summary { display:none; max-width:min(460px, 92vw); margin:0 0 12px; padding:10px 14px; border:1px solid #ffffff2e; border-radius:12px; color:#e2e8f0; background:#ffffff12; font-size:14px; font-weight:800; line-height:1.45; box-shadow:0 8px 22px #0002; }
+  #ui-screen.bm-result #ui-summary { display:block; animation:bm-summary-in .42s ease-out both; }
+  #ui-screen.bm-win #ui-title { text-shadow:0 0 20px #86efac55, 0 3px 14px #0007; animation:bm-win-pop .62s cubic-bezier(.2,.8,.2,1) both; }
+  #ui-screen.bm-gameover #ui-title { text-shadow:0 0 16px #f8717150, 0 3px 14px #0007; }
+  @keyframes bm-win-pop { 0% { transform:scale(.78); opacity:0; } 72% { transform:scale(1.06); opacity:1; } 100% { transform:scale(1); opacity:1; } }
+  @keyframes bm-summary-in { from { transform:translateY(8px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { #ui-screen.bm-result #ui-summary, #ui-screen.bm-win #ui-title { animation:none; } }
   #load-error { display:none; color:#fecaca; max-width:520px; padding:0 16px; text-align:center; }
   #hud { display:none; position:fixed; inset:0; z-index:20; color:#fff; pointer-events:none; font-family:system-ui,sans-serif; }
   #hud-top { position:absolute; top:max(9px, env(safe-area-inset-top)); left:9px; right:9px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; pointer-events:auto; }
@@ -73,6 +80,10 @@ uiScreen.insertBefore(uiSubtitle, uiButton);
 const loadError = document.createElement("p");
 loadError.id = "load-error";
 uiScreen.insertBefore(loadError, uiButton);
+const uiSummary = document.createElement("p");
+uiSummary.id = "ui-summary";
+uiSummary.setAttribute("aria-live", "polite");
+uiScreen.insertBefore(uiSummary, uiButton);
 
 const hud = document.createElement("div");
 hud.id = "hud";
@@ -508,17 +519,40 @@ function resetLadder() {
   ladderPlaced = false;
   climbing = false;
 }
+function formatTime(totalSeconds) {
+  const total = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
 function finish(won) {
   document.body.classList.remove("bm-require-landscape");
   state = won ? "WIN" : "GAMEOVER";
   Object.keys(input).forEach((k) => (input[k] = false));
+  resetJoystick();
+  triggerBabyAction(won ? "celebrate" : "disappointed");
+  if (won && player) {
+    spawnCollectEffect(
+      player.position.clone().add(new THREE.Vector3(0, 0.68, 0))
+    );
+  }
+  uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
+  uiScreen.classList.add("bm-result", won ? "bm-win" : "bm-gameover");
   uiScreen.style.display = "flex";
   hud.style.display = "block";
   uiTitle.textContent = won ? "LISTA COMPLETA!" : "TEMPO ESGOTADO!";
   uiTitle.style.color = won ? "#86efac" : "#fecaca";
+
+  const collectedCount = items.filter((item) => item.collected).length;
+  const elapsed = Math.max(0, ROUND_SECONDS - timeLeft);
   uiSubtitle.textContent = won
-    ? "Você encontrou todos os produtos do mini supermercado!"
+    ? "Parabéns! Você encontrou todos os produtos do mini supermercado."
     : "O tempo acabou. Tente uma rota melhor e use a escada para pegar o cereal.";
+  uiSummary.textContent = won
+    ? `Produtos: ${collectedCount}/${items.length}  •  Tempo: ${formatTime(elapsed)}  •  Restante: ${formatTime(timeLeft)}`
+    : `Produtos encontrados: ${collectedCount}/${items.length}  •  Tempo jogado: ${formatTime(elapsed)}`;
+  uiSummary.style.display = "block";
+
   uiButton.textContent = "JOGAR NOVAMENTE";
   uiButton.style.display = "inline-block";
   uiButton.disabled = false;
@@ -726,6 +760,9 @@ async function startGame() {
   document.body.classList.add("bm-require-landscape");
   hud.style.display = "block";
   listPanel.classList.remove("open");
+  uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
+  uiSummary.textContent = "";
+  uiSummary.style.display = "none";
   uiScreen.style.display = "flex";
   uiButton.style.display = "none";
   loadError.style.display = "none";
@@ -789,6 +826,8 @@ function triggerBabyAction(type) {
     ladderPlace: 0.58,
     climbStart: 0.42,
     climbDown: 0.42,
+    celebrate: 1.28,
+    disappointed: 0.82,
   };
   rig.actionType = type || "";
   rig.actionTime = 0;
@@ -834,13 +873,15 @@ function updateBabyAnimation(dt, moved) {
   const actionDip = actionStrength *
     (rig.actionType === "pickup" || rig.actionType === "ladderPlace" ? 0.018 : 0.006);
   rig.visual.position.y =
-    idleBreath * (1 - blend) + walkingBounce + climbingBounce - actionDip;
+    idleBreath * (1 - blend) + walkingBounce + climbingBounce - actionDip + 0.10 * celebrationStrength;
 
+  const celebrationStrength = rig.actionType === "celebrate" ? actionStrength : 0;
   const forwardLean = rig.actionType === "pickup" ? 0.28 :
     rig.actionType === "ladderPlace" ? 0.22 :
     rig.actionType === "ladderPickup" ? 0.14 :
     rig.actionType === "climbStart" ? 0.10 :
-    rig.actionType === "climbDown" ? 0.07 : 0;
+    rig.actionType === "climbDown" ? 0.07 :
+    rig.actionType === "disappointed" ? 0.18 : 0;
 
   rig.torso.rotation.x =
     -0.045 * blend +
@@ -852,7 +893,8 @@ function updateBabyAnimation(dt, moved) {
     0.025 * Math.sin(rig.clock * 1.25) +
     0.025 * blend -
     forwardLean * 0.72 * actionStrength -
-    0.04 * climbBlend;
+    0.04 * climbBlend +
+    0.12 * celebrationStrength;
   rig.headPivot.rotation.z =
     0.022 * Math.sin(rig.clock * 0.82) +
     0.025 * step * blend;
@@ -895,7 +937,8 @@ function updateBabyAnimation(dt, moved) {
       climbStep * 0.66 * climbBlend;
     arm.pivot.rotation.z =
       arm.side * 0.015 * blend +
-      arm.side * 0.14 * actionStrength * actionArmWeight;
+      arm.side * 0.14 * actionStrength * actionArmWeight +
+      arm.side * 1.05 * celebrationStrength;
   }
 }
 
