@@ -872,10 +872,9 @@ function updateBabyAnimation(dt, moved) {
   const climbingBounce = Math.abs(Math.sin(climbPhase)) * 0.009 * climbBlend;
   const actionDip = actionStrength *
     (rig.actionType === "pickup" || rig.actionType === "ladderPlace" ? 0.018 : 0.006);
+  const celebrationStrength = rig.actionType === "celebrate" ? actionStrength : 0;
   rig.visual.position.y =
     idleBreath * (1 - blend) + walkingBounce + climbingBounce - actionDip + 0.10 * celebrationStrength;
-
-  const celebrationStrength = rig.actionType === "celebrate" ? actionStrength : 0;
   const forwardLean = rig.actionType === "pickup" ? 0.28 :
     rig.actionType === "ladderPlace" ? 0.22 :
     rig.actionType === "ladderPickup" ? 0.14 :
