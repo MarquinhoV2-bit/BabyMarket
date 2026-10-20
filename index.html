@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <meta name="description" content="Protótipo 3D de compras no supermercado.">
+  <meta name="application-name" content="BabyMarket">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="BabyMarket">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <title>BabyMarket — Protótipo 3D</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #cdeafe;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      touch-action: none;
+      overscroll-behavior: none;
+    }
+    #ui-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: max(16px, env(safe-area-inset-top)) 24px max(16px, env(safe-area-inset-bottom));
+      text-align: center;
+      color: #fff;
+      background: linear-gradient(160deg, rgba(7,16,34,.92), rgba(17,24,39,.82));
+    }
+    #ui-title {
+      margin: 0;
+      max-width: 95vw;
+      color: #fff;
+      font-size: clamp(29px, 7vw, 46px);
+      font-weight: 900;
+      letter-spacing: .025em;
+      line-height: 1.1;
+      text-shadow: 0 3px 14px rgba(0,0,0,.5);
+    }
+    #ui-btn {
+      min-width: 200px;
+      min-height: 48px;
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 24px;
+      color: #1f2937;
+      background: linear-gradient(180deg, #fbbf24, #f59e0b);
+      font-size: 17px;
+      font-weight: 850;
+      box-shadow: 0 6px 0 #b45309, 0 12px 24px rgba(0,0,0,.25);
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    #ui-btn:active { transform: translateY(3px); box-shadow: 0 3px 0 #b45309; }
+    #ui-btn:disabled { cursor: wait; filter: grayscale(.5); opacity: .65; }
+    @media (orientation: landscape) and (max-height: 500px) {
+      #ui-screen { gap: 7px; padding: 10px; }
+      #ui-title { font-size: clamp(24px, 5vw, 38px); }
+      #ui-btn { padding: 10px 20px; min-height: 42px; }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="ui-screen" role="status" aria-live="polite">
+    <h1 id="ui-title">CARREGANDO SUPERMERCADO...</h1>
+    <button id="ui-btn" disabled>CARREGANDO...</button>
+  </div>
+  <script type="module" src="./src/main.js?v=9"></script>
+</body>
+</html>
