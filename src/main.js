@@ -191,6 +191,10 @@ let lastTimerText = -1;
 let lastMessage = "";
 let countdownId = 0;
 let lastFrame = performance.now();
+let activeHighlightTarget = null;
+let activeInteractionHighlight = null;
+let activeHighlightColor = 0xfbbf24;
+const collectEffects = [];
 
 function worldPos(obj) {
   const p = new THREE.Vector3();
@@ -206,6 +210,100 @@ function message(text) {
     lastMessage = text;
   }
 }
+function setInteractionHighlight(target, color = 0xfbbf24) {
+  if (target === activeHighlightTarget && activeInteractionHighlight) {
+    if (activeHighlightColor !== color) {
+      activeHighlightColor = color;
+      activeInteractionHighlight.material.color.setHex(color);
+    }
+    activeInteractionHighlight.update();
+    return;
+  }
+
+  if (activeInteractionHighlight) {
+    scene.remove(activeInteractionHighlight);
+    activeInteractionHighlight.geometry.dispose();
+    activeInteractionHighlight.material.dispose();
+    activeInteractionHighlight = null;
+  }
+  activeHighlightTarget = target || null;
+  activeHighlightColor = color;
+  if (!target) return;
+
+  // Contorno de baixo custo; só existe para o alvo da próxima ação.
+  activeInteractionHighlight = new THREE.BoxHelper(target, color);
+  activeInteractionHighlight.material.transparent = true;
+  activeInteractionHighlight.material.opacity = 0.92;
+  activeInteractionHighlight.material.depthWrite = false;
+  scene.add(activeInteractionHighlight);
+}
+
+function spawnCollectEffect(position) {
+  const group = new THREE.Group();
+  group.name = "Collect_Sparkle_Effect";
+  group.position.copy(position);
+
+  const geometry = new THREE.SphereGeometry(0.035, 6, 6);
+  const gold = new THREE.MeshBasicMaterial({
+    color: 0xfbbf24,
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+  });
+  const green = new THREE.MeshBasicMaterial({
+    color: 0x86efac,
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+  });
+  const particles = [];
+  for (let i = 0; i < 8; i++) {
+    const mesh = new THREE.Mesh(geometry, i % 3 === 0 ? green : gold);
+    const angle = (Math.PI * 2 * i) / 8;
+    mesh.position.set(Math.cos(angle) * 0.07, 0.03 + (i % 3) * 0.035, Math.sin(angle) * 0.07);
+    group.add(mesh);
+    particles.push({
+      mesh,
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * (0.34 + (i % 2) * 0.12),
+        0.55 + (i % 3) * 0.12,
+        Math.sin(angle) * (0.34 + (i % 2) * 0.12),
+      ),
+      material: mesh.material,
+    });
+  }
+  scene.add(group);
+  collectEffects.push({
+    group,
+    geometry,
+    materials: [gold, green],
+    particles,
+    age: 0,
+    duration: 0.62,
+  });
+}
+
+function updateCollectEffects(dt) {
+  for (let i = collectEffects.length - 1; i >= 0; i--) {
+    const effect = collectEffects[i];
+    effect.age += dt;
+    const progress = Math.min(effect.age / effect.duration, 1);
+    for (const particle of effect.particles) {
+      particle.mesh.position.addScaledVector(particle.velocity, dt);
+      particle.velocity.y -= 1.35 * dt;
+      const fade = 1 - progress;
+      particle.material.opacity = fade;
+      particle.mesh.scale.setScalar(Math.max(0.05, fade));
+    }
+    if (progress >= 1) {
+      scene.remove(effect.group);
+      effect.geometry.dispose();
+      effect.materials.forEach((material) => material.dispose());
+      collectEffects.splice(i, 1);
+    }
+  }
+}
+
 function showAction(label) {
   interactButton.textContent = label;
   interactButton.disabled = false;
@@ -431,8 +529,10 @@ function finish(won) {
 function collect(item) {
   if (!item || item.collected) return;
   triggerBabyAction("pickup");
+  spawnCollectEffect(worldPos(item.object));
   item.collected = true;
   item.object.visible = false;
+  if (activeHighlightTarget === item.object) setInteractionHighlight(null);
   const li = hud.querySelector(`li[data-item="${item.name}"]`);
   if (li) {
     li.classList.add("done");
@@ -458,20 +558,27 @@ function lowItemNear() {
 function updatePrompt() {
   if (state !== "PLAYING" || !player || !portableLadder) {
     hideAction();
+    setInteractionHighlight(null);
     return;
   }
+
   if (climbing) {
     const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
     if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
+      setInteractionHighlight(cereal.object, 0x86efac);
       message("Você alcançou o cereal! Pegue-o.");
       showAction("PEGAR CEREAL");
     } else {
+      setInteractionHighlight(portableLadder, 0x38bdf8);
       message("Você está na escada. Toque para descer.");
       showAction("DESCER");
     }
     return;
   }
+
   if (ladderCarried) {
+    // A marca de apoio fica destacada mesmo um pouco distante para orientar o trajeto.
+    setInteractionHighlight(ladderDropZone, 0x38bdf8);
     if (distXZ(player.position, ladderDropPosition) <= 1.22) {
       message("Chegou à marca âmbar. Apoie a escada aqui.");
       showAction("APOIAR ESCADA");
@@ -481,34 +588,42 @@ function updatePrompt() {
     }
     return;
   }
+
   const ladderPos = worldPos(portableLadder);
   const dLadder = distXZ(player.position, ladderPos);
   if (!ladderPlaced && dLadder <= 1.25) {
+    setInteractionHighlight(portableLadder, 0xfbbf24);
     message("Encontrei uma escada! Pegue-a para alcançar o cereal.");
     showAction("PEGAR ESCADA");
     return;
   }
   if (ladderPlaced && dLadder <= 1.45) {
+    setInteractionHighlight(portableLadder, 0x38bdf8);
     message("A escada está apoiada. Toque para subir.");
     showAction("SUBIR ESCADA");
     return;
   }
+
   const item = lowItemNear();
   if (item) {
+    setInteractionHighlight(item.object, 0xfbbf24);
     message(`Produto próximo: ${item.label}. Toque para coletar.`);
     showAction(`PEGAR ${item.label.toUpperCase()}`);
     return;
   }
+
   const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
   if (
     cereal &&
     distXZ(player.position, cereal.position) <= 2.1 &&
     !ladderPlaced
-  )
-    message(
-      "O cereal está alto! Pegue a escada portátil e apoie-a na marca âmbar."
-    );
-  else message("Explore os corredores e procure os produtos da lista.");
+  ) {
+    setInteractionHighlight(cereal.object, 0x38bdf8);
+    message("O cereal está alto! Pegue a escada portátil e apoie-a na marca âmbar.");
+  } else {
+    message("Explore os corredores e procure os produtos da lista.");
+    setInteractionHighlight(null);
+  }
   hideAction();
 }
 function interact() {
@@ -1074,6 +1189,8 @@ function animate(now) {
   const actuallyMoved = !!player &&
     Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
   updateBabyAnimation(dt, actuallyMoved);
+  updateCollectEffects(dt);
+  if (activeInteractionHighlight) activeInteractionHighlight.update();
   updateTimer(dt);
   if (state === "PLAYING") updatePrompt();
   if (
