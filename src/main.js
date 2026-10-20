@@ -20,6 +20,14 @@ css.textContent = `
   .bm-panel { background:rgba(15,23,42,.91); border:1px solid rgba(255,255,255,.18); border-radius:12px; padding:10px 12px; box-shadow:0 4px 18px #0003; backdrop-filter:blur(6px); }
   #timer-card { font-variant-numeric:tabular-nums; font-weight:900; font-size:20px; min-width:84px; }
   #timer-card.urgent { color:#fecaca; border-color:#f87171; }
+  #pause-btn { display:none; align-items:center; justify-content:center; gap:6px; min-height:43px; padding:10px 12px; color:#fff; background:rgba(15,23,42,.91); border:1px solid rgba(255,255,255,.2); border-radius:12px; font-size:13px; font-weight:850; cursor:pointer; touch-action:manipulation; }
+  #pause-overlay { display:none; position:fixed; inset:0; z-index:80; align-items:center; justify-content:center; padding:18px; color:#fff; background:rgba(5,10,22,.78); backdrop-filter:blur(5px); font-family:system-ui,sans-serif; }
+  #pause-card { display:flex; flex-direction:column; align-items:center; gap:10px; width:min(420px,94vw); padding:clamp(18px,4vh,30px); border:1px solid #ffffff35; border-radius:20px; background:linear-gradient(155deg,#1e293b,#0f172a); box-shadow:0 18px 52px #0007; text-align:center; }
+  #pause-card h2 { margin:0; font-size:clamp(26px,5vw,36px); font-weight:950; letter-spacing:.02em; }
+  #pause-card p { margin:0 0 6px; color:#cbd5e1; font-size:14px; line-height:1.45; }
+  .pause-action { width:min(270px,100%); min-height:46px; padding:11px 16px; border:1px solid #ffffff25; border-radius:12px; font-size:14px; font-weight:900; cursor:pointer; touch-action:manipulation; }
+  #resume-btn { color:#052e16; background:linear-gradient(#bbf7d0,#4ade80); border-color:#86efac; }
+  #restart-pause-btn { color:#f8fafc; background:#334155; }
   #list-toggle, #interact-btn, .bm-dir { border:1px solid rgba(255,255,255,.2); border-radius:12px; font-weight:800; cursor:pointer; touch-action:none; }
   #list-toggle { color:white; background:rgba(15,23,42,.91); padding:11px 13px; min-height:43px; }
   #list-count { margin-left:5px; color:#bae6fd; }
@@ -52,6 +60,7 @@ css.textContent = `
     #hud-top { top:max(5px, env(safe-area-inset-top)); left:6px; right:6px; }
     .bm-panel { padding:6px 9px; border-radius:9px; }
     #timer-card { font-size:16px; min-width:68px; }
+    #pause-btn { min-height:34px; padding:7px 9px; font-size:11px; border-radius:8px; }
     #list-toggle, #fullscreen-btn { min-height:34px; padding:7px 9px; font-size:12px; }
     #list-panel { top:calc(max(5px, env(safe-area-inset-top)) + 40px); right:6px; }
     #mobile-controls { left:7px; right:7px; bottom:max(5px, env(safe-area-inset-bottom)); }
@@ -89,7 +98,7 @@ const hud = document.createElement("div");
 hud.id = "hud";
 hud.innerHTML = `
   <div id="hud-top">
-    <div id="timer-card" class="bm-panel">⏱️ <span id="timer-value">90</span></div>
+    <div style="display:flex;gap:6px;align-items:flex-start"><div id="timer-card" class="bm-panel">⏱️ <span id="timer-value">90</span></div><button id="pause-btn" type="button" aria-label="Pausar partida">Ⅱ PAUSAR</button></div>
     <div style="display:flex;gap:6px;align-items:flex-start"><button id="list-toggle">📝 LISTA <span id="list-count">0/3</span></button><button id="camera-reset-btn" class="bm-panel" type="button" aria-label="Recentralizar câmera">↻ VISÃO</button><button id="fullscreen-btn" class="bm-panel" type="button" aria-label="Ativar tela cheia">⛶ TELA CHEIA</button></div>
   </div>
   <section id="list-panel" class="bm-panel">
@@ -118,6 +127,22 @@ rotateNotice.innerHTML =
   '<div>📱 GIRE O CELULAR<br><span style="font-size:.58em;font-weight:600">O BabyMarket fica melhor na horizontal</span></div>';
 document.body.appendChild(rotateNotice);
 
+const pauseOverlay = document.createElement("div");
+pauseOverlay.id = "pause-overlay";
+pauseOverlay.setAttribute("role", "dialog");
+pauseOverlay.setAttribute("aria-modal", "true");
+pauseOverlay.setAttribute("aria-labelledby", "pause-title");
+pauseOverlay.innerHTML = `
+  <section id="pause-card">
+    <div style="font-size:34px;line-height:1">Ⅱ</div>
+    <h2 id="pause-title">JOGO PAUSADO</h2>
+    <p>O tempo e os movimentos estão pausados.<br>Retome quando estiver pronto.</p>
+    <button class="pause-action" id="resume-btn" type="button">▶ CONTINUAR</button>
+    <button class="pause-action" id="restart-pause-btn" type="button">↻ REINICIAR PARTIDA</button>
+  </section>
+`;
+document.body.appendChild(pauseOverlay);
+
 const timerValue = hud.querySelector("#timer-value");
 const timerCard = hud.querySelector("#timer-card");
 const listToggle = hud.querySelector("#list-toggle");
@@ -127,6 +152,9 @@ const listHelp = hud.querySelector("#list-help");
 const interactionMessage = hud.querySelector("#interaction-message");
 const interactButton = hud.querySelector("#interact-btn");
 const fullscreenButton = hud.querySelector("#fullscreen-btn");
+const pauseButton = hud.querySelector("#pause-btn");
+const resumeButton = pauseOverlay.querySelector("#resume-btn");
+const restartPauseButton = pauseOverlay.querySelector("#restart-pause-btn");
 const cameraResetButton = hud.querySelector("#camera-reset-btn");
 const joystick = hud.querySelector("#joystick");
 const joystickBase = hud.querySelector("#joystick-base");
@@ -527,6 +555,8 @@ function formatTime(totalSeconds) {
 }
 function finish(won) {
   document.body.classList.remove("bm-require-landscape");
+  pauseOverlay.style.display = "none";
+  pauseButton.style.display = "none";
   state = won ? "WIN" : "GAMEOVER";
   Object.keys(input).forEach((k) => (input[k] = false));
   resetJoystick();
@@ -743,6 +773,8 @@ function interact() {
 async function startGame() {
   if (!environment || !player) return;
   await requestImmersiveMode();
+  pauseOverlay.style.display = "none";
+  pauseButton.style.display = "none";
   const session = ++countdownId;
   resetLadder();
   resetItems();
@@ -781,9 +813,38 @@ async function startGame() {
   uiButton.style.display = "inline-block";
   state = "PLAYING";
   lastFrame = performance.now();
+  updatePauseButtonVisibility();
   updatePrompt();
   updateCamera(1);
 }
+function updatePauseButtonVisibility() {
+  const canPause = state === "PLAYING";
+  pauseButton.style.display = canPause ? "inline-flex" : "none";
+  pauseButton.disabled = !canPause;
+}
+function pauseGame() {
+  if (state !== "PLAYING") return;
+  state = "PAUSED";
+  Object.keys(input).forEach((key) => (input[key] = false));
+  resetJoystick();
+  cameraPointerId = null;
+  hideAction();
+  listPanel.classList.remove("open");
+  pauseOverlay.style.display = "flex";
+  updatePauseButtonVisibility();
+}
+function resumeGame() {
+  if (state !== "PAUSED") return;
+  state = "PLAYING";
+  pauseOverlay.style.display = "none";
+  Object.keys(input).forEach((key) => (input[key] = false));
+  resetJoystick();
+  cameraPointerId = null;
+  lastFrame = performance.now();
+  updatePauseButtonVisibility();
+  updatePrompt();
+}
+
 function updateCamera(alpha) {
   if (!player) return;
   const horizontalDistance = CAMERA_DISTANCE * Math.cos(cameraPitch);
@@ -997,7 +1058,10 @@ function setupControls() {
       cameraPitch = INITIAL_CAMERA_PITCH;
       updateCamera(1);
     }
-    if (e.code === "Escape") listPanel.classList.remove("open");
+    if (e.code === "Escape") {
+      if (state === "PAUSED") resumeGame();
+      else listPanel.classList.remove("open");
+    }
   });
   window.addEventListener("keyup", (e) => {
     if (keyMap[e.code]) {
@@ -1108,6 +1172,16 @@ function setupControls() {
     if (document.fullscreenElement) {
       try { await document.exitFullscreen(); } catch (e) {}
     } else await requestImmersiveMode();
+  });
+  pauseButton.addEventListener("click", pauseGame);
+  resumeButton.addEventListener("click", resumeGame);
+  restartPauseButton.addEventListener("click", () => {
+    if (state !== "PAUSED") return;
+    pauseOverlay.style.display = "none";
+    startGame();
+  });
+  pauseOverlay.addEventListener("click", (e) => {
+    if (e.target === pauseOverlay) resumeGame();
   });
   uiButton.addEventListener("click", startGame);
 }
@@ -1230,8 +1304,10 @@ function animate(now) {
   movePlayer(dt);
   const actuallyMoved = !!player &&
     Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
-  updateBabyAnimation(dt, actuallyMoved);
-  updateCollectEffects(dt);
+  if (state !== "PAUSED") {
+    updateBabyAnimation(dt, actuallyMoved);
+    updateCollectEffects(dt);
+  }
   if (activeInteractionHighlight) activeInteractionHighlight.update();
   updateTimer(dt);
   if (state === "PLAYING") updatePrompt();
