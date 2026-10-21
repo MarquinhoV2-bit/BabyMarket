@@ -870,6 +870,8 @@ function interact() {
 }
 async function startGame() {
   if (!environment || !player) return;
+  statsPanel.style.display = "none";
+  statsCaption.style.display = "none";
   await requestImmersiveMode();
   pauseOverlay.style.display = "none";
   pauseButton.style.display = "none";
