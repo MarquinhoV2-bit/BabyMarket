@@ -14,6 +14,26 @@ css.textContent = `
   @keyframes bm-win-pop { 0% { transform:scale(.78); opacity:0; } 72% { transform:scale(1.06); opacity:1; } 100% { transform:scale(1); opacity:1; } }
   @keyframes bm-summary-in { from { transform:translateY(8px); opacity:0; } to { transform:translateY(0); opacity:1; } }
   @media (prefers-reduced-motion: reduce) { #ui-screen.bm-result #ui-summary, #ui-screen.bm-win #ui-title { animation:none; } }
+  #bm-stats {
+    display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;
+    width:min(520px,94vw); margin:0 0 4px;
+  }
+  .bm-stat {
+    min-width:0; padding:11px 8px 10px; border:1px solid #ffffff26;
+    border-radius:14px; background:linear-gradient(155deg,#ffffff17,#ffffff08);
+    box-shadow:0 8px 22px #0002; text-align:center;
+  }
+  .bm-stat-icon { display:block; margin-bottom:4px; font-size:20px; line-height:1.1; }
+  .bm-stat-value { display:block; color:#f8fafc; font-size:clamp(17px,3.7vw,25px); font-weight:950; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .bm-stat-label { display:block; margin-top:4px; color:#cbd5e1; font-size:clamp(9px,2.2vw,11px); font-weight:800; letter-spacing:.035em; text-transform:uppercase; }
+  #bm-stats-caption { margin:0; color:#bfdbfe; font-size:12px; font-weight:750; text-align:center; }
+  #ui-screen.bm-result #bm-stats { animation:bm-summary-in .42s ease-out both; }
+  @media (orientation:landscape) and (max-height:500px) {
+    #bm-stats { width:min(470px,90vw); gap:6px; }
+    .bm-stat { padding:7px 6px; border-radius:10px; }
+    .bm-stat-icon { font-size:16px; }
+    .bm-stat-label { font-size:9px; }
+  }
   #load-error { display:none; color:#fecaca; max-width:520px; padding:0 16px; text-align:center; }
   #hud { display:none; position:fixed; inset:0; z-index:20; color:#fff; pointer-events:none; font-family:system-ui,sans-serif; }
   #hud-top { position:absolute; top:max(9px, env(safe-area-inset-top)); left:9px; right:9px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; pointer-events:auto; }
@@ -86,6 +106,32 @@ const uiSubtitle = document.createElement("p");
 uiSubtitle.id = "ui-subtitle";
 uiSubtitle.textContent = "Preparando o cenário 3D do BabyMarket.";
 uiScreen.insertBefore(uiSubtitle, uiButton);
+const statsPanel = document.createElement("section");
+statsPanel.id = "bm-stats";
+statsPanel.setAttribute("aria-label", "Estatísticas pessoais");
+statsPanel.innerHTML = `
+  <div class="bm-stat"><span class="bm-stat-icon">🏆</span><strong class="bm-stat-value" id="bm-stat-wins">0</strong><span class="bm-stat-label">Vitórias</span></div>
+  <div class="bm-stat"><span class="bm-stat-icon">⚡</span><strong class="bm-stat-value" id="bm-stat-best">—</strong><span class="bm-stat-label">Melhor tempo</span></div>
+  <div class="bm-stat"><span class="bm-stat-icon">⏱️</span><strong class="bm-stat-value" id="bm-stat-remaining">—</strong><span class="bm-stat-label">Folga no recorde</span></div>
+`;
+const statsCaption = document.createElement("p");
+statsCaption.id = "bm-stats-caption";
+statsCaption.textContent = "Complete a lista para criar seu primeiro recorde!";
+uiScreen.insertBefore(statsPanel, uiButton);
+uiScreen.insertBefore(statsCaption, uiButton);
+function updateStatsPanel() {
+  const records = readPersonalRecords();
+  statsPanel.querySelector("#bm-stat-wins").textContent = String(records.wins);
+  statsPanel.querySelector("#bm-stat-best").textContent =
+    records.bestTimeSeconds === null ? "—" : formatTime(records.bestTimeSeconds);
+  statsPanel.querySelector("#bm-stat-remaining").textContent =
+    records.bestTimeSeconds === null ? "—" : formatTime(records.bestRemainingSeconds);
+  statsCaption.textContent = records.bestTimeSeconds === null
+    ? "Complete a lista para criar seu primeiro recorde!"
+    : "Seu melhor resultado está salvo neste aparelho.";
+}
+updateStatsPanel();
+
 const loadError = document.createElement("p");
 loadError.id = "load-error";
 uiScreen.insertBefore(loadError, uiButton);
@@ -631,6 +677,9 @@ function finish(won) {
     ? `Produtos: ${collectedCount}/${items.length}  •  Tempo: ${formatTime(elapsed)}  •  Restante: ${formatTime(timeLeft)}\n${newPersonalBest ? "🏆 NOVO RECORDE PESSOAL!  •  " : ""}Vitórias: ${records.wins}  •  ${records.bestTimeSeconds === null ? "Melhor tempo: —" : "Recorde: " + formatTime(records.bestTimeSeconds)}`
     : `Produtos encontrados: ${collectedCount}/${items.length}  •  Tempo jogado: ${formatTime(elapsed)}\n${recordMenuText()}`;
   uiSummary.style.display = "block";
+  updateStatsPanel();
+  statsPanel.style.display = "grid";
+  statsCaption.style.display = "block";
 
   uiButton.textContent = "JOGAR NOVAMENTE";
   uiButton.style.display = "inline-block";
@@ -859,6 +908,8 @@ async function startGame() {
   }
   if (session !== countdownId) return;
   uiScreen.style.display = "none";
+  statsPanel.style.display = "none";
+  statsCaption.style.display = "none";
   uiButton.style.display = "inline-block";
   state = "PLAYING";
   lastFrame = performance.now();
@@ -1329,8 +1380,11 @@ function loadScenario() {
         uiTitle.textContent = "BABYMARKET";
         uiSubtitle.textContent =
           "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
-        uiSummary.textContent = recordMenuText();
-        uiSummary.style.display = "block";
+        uiSummary.textContent = "";
+        uiSummary.style.display = "none";
+        updateStatsPanel();
+        statsPanel.style.display = "grid";
+        statsCaption.style.display = "block";
         uiButton.textContent = "INICIAR JOGO";
         uiButton.disabled = false;
         uiButton.style.display = "inline-block";
