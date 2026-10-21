@@ -34,6 +34,25 @@ css.textContent = `
     .bm-stat-icon { font-size:16px; }
     .bm-stat-label { font-size:9px; }
   }
+  #bm-medal {
+    display:none; align-items:center; justify-content:center; gap:9px;
+    width:min(420px,92vw); padding:11px 18px; margin:0 0 2px;
+    border:1px solid #ffffff35; border-radius:16px;
+    background:linear-gradient(135deg,#334155dd,#0f172add);
+    box-shadow:0 8px 26px #0004; color:#f8fafc;
+  }
+  #bm-medal .bm-medal-icon { font-size:30px; line-height:1; filter:drop-shadow(0 3px 4px #0005); }
+  #bm-medal .bm-medal-name { display:block; font-size:17px; font-weight:950; letter-spacing:.06em; }
+  #bm-medal .bm-medal-detail { display:block; margin-top:2px; color:#cbd5e1; font-size:11px; font-weight:750; }
+  #bm-medal.bm-gold { border-color:#facc15aa; background:linear-gradient(135deg,#713f12ee,#422006ee); }
+  #bm-medal.bm-silver { border-color:#cbd5e1aa; background:linear-gradient(135deg,#475569ee,#1e293bee); }
+  #bm-medal.bm-bronze { border-color:#d97706aa; background:linear-gradient(135deg,#78350fee,#431407ee); }
+  #ui-screen.bm-win #bm-medal { animation:bm-win-pop .55s cubic-bezier(.2,.8,.2,1) both; }
+  @media (orientation:landscape) and (max-height:500px) {
+    #bm-medal { padding:6px 12px; gap:7px; }
+    #bm-medal .bm-medal-icon { font-size:22px; }
+    #bm-medal .bm-medal-name { font-size:14px; }
+  }
   #load-error { display:none; color:#fecaca; max-width:520px; padding:0 16px; text-align:center; }
   #hud { display:none; position:fixed; inset:0; z-index:20; color:#fff; pointer-events:none; font-family:system-ui,sans-serif; }
   #hud-top { position:absolute; top:max(9px, env(safe-area-inset-top)); left:9px; right:9px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; pointer-events:auto; }
@@ -106,6 +125,29 @@ const uiSubtitle = document.createElement("p");
 uiSubtitle.id = "ui-subtitle";
 uiSubtitle.textContent = "Preparando o cenário 3D do BabyMarket.";
 uiScreen.insertBefore(uiSubtitle, uiButton);
+const medalPanel = document.createElement("div");
+medalPanel.id = "bm-medal";
+medalPanel.setAttribute("aria-live", "polite");
+medalPanel.innerHTML = '<span class="bm-medal-icon" id="bm-medal-icon">🏅</span><span><strong class="bm-medal-name" id="bm-medal-name">MEDALHA</strong><span class="bm-medal-detail" id="bm-medal-detail"></span></span>';
+uiScreen.insertBefore(medalPanel, uiButton);
+function setVictoryMedal(won, remainingSeconds) {
+  medalPanel.classList.remove("bm-gold", "bm-silver", "bm-bronze");
+  if (!won) {
+    medalPanel.style.display = "none";
+    return;
+  }
+  const medal = remainingSeconds >= 45
+    ? { tier: "gold", icon: "🥇", name: "OURO", detail: "Excelente! Mais de 45 segundos sobrando." }
+    : remainingSeconds >= 20
+      ? { tier: "silver", icon: "🥈", name: "PRATA", detail: "Muito bem! Você terminou com tempo de sobra." }
+      : { tier: "bronze", icon: "🥉", name: "BRONZE", detail: "Lista completa! Tente terminar ainda mais rápido." };
+  medalPanel.classList.add("bm-" + medal.tier);
+  medalPanel.querySelector("#bm-medal-icon").textContent = medal.icon;
+  medalPanel.querySelector("#bm-medal-name").textContent = "MEDALHA DE " + medal.name;
+  medalPanel.querySelector("#bm-medal-detail").textContent = medal.detail;
+  medalPanel.style.display = "flex";
+}
+
 const statsPanel = document.createElement("section");
 statsPanel.id = "bm-stats";
 statsPanel.setAttribute("aria-label", "Estatísticas pessoais");
@@ -677,6 +719,7 @@ function finish(won) {
     ? `Produtos: ${collectedCount}/${items.length}  •  Tempo: ${formatTime(elapsed)}  •  Restante: ${formatTime(timeLeft)}\n${newPersonalBest ? "🏆 NOVO RECORDE PESSOAL!  •  " : ""}Vitórias: ${records.wins}  •  ${records.bestTimeSeconds === null ? "Melhor tempo: —" : "Recorde: " + formatTime(records.bestTimeSeconds)}`
     : `Produtos encontrados: ${collectedCount}/${items.length}  •  Tempo jogado: ${formatTime(elapsed)}\n${recordMenuText()}`;
   uiSummary.style.display = "block";
+  setVictoryMedal(won, Math.max(0, Math.floor(timeLeft)));
   updateStatsPanel();
   statsPanel.style.display = "grid";
   statsCaption.style.display = "block";
@@ -872,6 +915,7 @@ async function startGame() {
   if (!environment || !player) return;
   statsPanel.style.display = "none";
   statsCaption.style.display = "none";
+  medalPanel.style.display = "none";
   await requestImmersiveMode();
   pauseOverlay.style.display = "none";
   pauseButton.style.display = "none";
