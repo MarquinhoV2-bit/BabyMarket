@@ -129,7 +129,7 @@ const medalPanel = document.createElement("div");
 medalPanel.id = "bm-medal";
 medalPanel.setAttribute("aria-live", "polite");
 medalPanel.innerHTML = '<span class="bm-medal-icon" id="bm-medal-icon">🏅</span><span><strong class="bm-medal-name" id="bm-medal-name">MEDALHA</strong><span class="bm-medal-detail" id="bm-medal-detail"></span></span>';
-uiScreen.insertBefore(medalPanel, statsPanel);
+uiScreen.insertBefore(medalPanel, uiButton);
 function setVictoryMedal(won, remainingSeconds) {
   medalPanel.classList.remove("bm-gold", "bm-silver", "bm-bronze");
   if (!won) {
