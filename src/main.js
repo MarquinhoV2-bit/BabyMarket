@@ -83,6 +83,8 @@ css.textContent = `
   #mobile-controls { display:flex; position:absolute; left:11px; right:11px; bottom:max(12px, env(safe-area-inset-bottom)); align-items:flex-end; justify-content:space-between; pointer-events:none; }
   #joystick { position:fixed; left:0; top:0; z-index:26; display:flex; flex-direction:column; align-items:center; gap:3px; pointer-events:none; touch-action:none; user-select:none; -webkit-user-select:none; opacity:0; visibility:hidden; }
   #joystick.active { opacity:1; visibility:visible; }
+  #joystick.running #joystick-base { border-color:#fbbf24; box-shadow:0 4px 18px #0005, inset 0 0 0 7px #fbbf2425, 0 0 0 3px #fbbf2430; }
+  #joystick.running #joystick-knob { background:linear-gradient(145deg,#fde68a,#f59e0b); }
   #joystick-base { pointer-events:none; }
   #joystick-base { position:relative; width:112px; height:112px; border:2px solid rgba(255,255,255,.58); border-radius:50%; background:radial-gradient(circle, rgba(148,163,184,.42), rgba(15,23,42,.76)); box-shadow:0 4px 18px #0005, inset 0 0 0 7px #ffffff0d; touch-action:none; }
   #joystick-knob { position:absolute; left:50%; top:50%; width:44px; height:44px; transform:translate(-50%,-50%); border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#e2e8f0,#64748b); box-shadow:0 3px 10px #0007; pointer-events:none; }
@@ -254,7 +256,7 @@ function resetJoystick() {
   input.analogX = 0;
   input.analogY = 0;
   joystickPointerId = null;
-  joystick.classList.remove("active");
+  joystick.classList.remove("active", "running");
   joystickKnob.style.transform = "translate(-50%,-50%)";
 }
 
@@ -1006,9 +1008,22 @@ function updateCamera(alpha) {
 }
 function movePlayer(dt) {
   if (state !== "PLAYING" || !player || climbing) return;
-  const strafe = Number(input.right) - Number(input.left) + input.analogX;
-  const forward = Number(input.up) - Number(input.down) - input.analogY;
-  if (Math.abs(strafe) < 0.001 && Math.abs(forward) < 0.001) return;
+  const keyboardX = Number(input.right) - Number(input.left);
+  const keyboardY = Number(input.up) - Number(input.down);
+  const analogX = input.analogX;
+  const analogY = -input.analogY;
+  const strafe = keyboardX + analogX;
+  const forward = keyboardY + analogY;
+  const inputMagnitude = Math.min(1, Math.hypot(strafe, forward));
+  if (inputMagnitude < 0.045) {
+    player.userData.moveIntensity = 0;
+    return;
+  }
+
+  // Inclinação parcial do analógico = caminhada; inclinação total = corrida.
+  // O teclado continua com velocidade total para manter os controles desktop familiares.
+  const keyboardActive = keyboardX !== 0 || keyboardY !== 0;
+  const moveIntensity = keyboardActive ? 1 : inputMagnitude;
   const len = Math.hypot(strafe, forward);
   const localX = strafe / len;
   const localForward = forward / len;
@@ -1016,11 +1031,14 @@ function movePlayer(dt) {
   const cosYaw = Math.cos(cameraYaw);
   const dx = localX * cosYaw - localForward * sinYaw;
   const dz = -localX * sinYaw - localForward * cosYaw;
-  const speed = ladderCarried ? LADDER_SPEED : MOVE_SPEED;
+  const baseSpeed = ladderCarried ? LADDER_SPEED : MOVE_SPEED;
+  const minimumSpeed = ladderCarried ? LADDER_SPEED * 0.7 : MOVE_SPEED * 0.28;
+  const speed = minimumSpeed + (baseSpeed - minimumSpeed) * moveIntensity;
   const nx = player.position.x + dx * speed * dt;
   const nz = player.position.z + dz * speed * dt;
   if (canStand(nx, player.position.z)) player.position.x = nx;
   if (canStand(player.position.x, nz)) player.position.z = nz;
+  player.userData.moveIntensity = moveIntensity;
   if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
 }
 function triggerBabyAction(type) {
@@ -1048,7 +1066,10 @@ function updateBabyAnimation(dt, moved) {
 
   rig.clock += dt;
   const isWalking = moved && state === "PLAYING" && !climbing;
-  const targetBlend = isWalking ? 1 : 0;
+  const moveIntensity = isWalking
+    ? THREE.MathUtils.clamp(player.userData.moveIntensity ?? 1, 0.2, 1)
+    : 0;
+  const targetBlend = isWalking ? moveIntensity : 0;
   rig.walkBlend +=
     (targetBlend - rig.walkBlend) * (1 - Math.exp(-12 * dt));
 
@@ -1068,7 +1089,10 @@ function updateBabyAnimation(dt, moved) {
 
   const blend = rig.walkBlend;
   const climbBlend = climbing && state === "PLAYING" ? 1 : 0;
-  const strideRate = ladderCarried ? 7.1 : 9.4;
+  const baseStrideRate = ladderCarried ? 7.1 : 9.4;
+  const strideRate = isWalking
+    ? baseStrideRate * (0.62 + 0.58 * moveIntensity)
+    : baseStrideRate * 0.72;
   const phase = rig.clock * strideRate;
   const step = Math.sin(phase);
   const climbPhase = rig.clock * 8.0;
@@ -1251,8 +1275,11 @@ function setupControls() {
     }
     const x = dx / maxDistance;
     const y = dy / maxDistance;
-    input.analogX = Math.abs(x) < 0.09 ? 0 : x;
-    input.analogY = Math.abs(y) < 0.09 ? 0 : y;
+    const deadZone = 0.09;
+    input.analogX = Math.abs(x) < deadZone ? 0 : x;
+    input.analogY = Math.abs(y) < deadZone ? 0 : y;
+    const magnitude = Math.min(1, Math.hypot(input.analogX, input.analogY));
+    joystick.classList.toggle("running", magnitude > 0.88);
     joystickKnob.style.transform = "translate(calc(-50% + " + dx + "px),calc(-50% + " + dy + "px))";
   }
   // Arraste o lado direito da tela para orbitar a câmera.
