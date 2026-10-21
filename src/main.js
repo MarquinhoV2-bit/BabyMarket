@@ -553,6 +553,42 @@ function formatTime(totalSeconds) {
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
+const BABYMARKET_RECORD_KEY = "babymarket.personalRecords.v1";
+function readPersonalRecords() {
+  const empty = { wins: 0, bestTimeSeconds: null, bestRemainingSeconds: 0 };
+  try {
+    const raw = localStorage.getItem(BABYMARKET_RECORD_KEY);
+    if (!raw) return { ...empty };
+    const saved = JSON.parse(raw);
+    return {
+      wins: Number.isInteger(saved.wins) && saved.wins >= 0 ? saved.wins : 0,
+      bestTimeSeconds:
+        Number.isFinite(saved.bestTimeSeconds) && saved.bestTimeSeconds >= 0
+          ? saved.bestTimeSeconds : null,
+      bestRemainingSeconds:
+        Number.isFinite(saved.bestRemainingSeconds) && saved.bestRemainingSeconds >= 0
+          ? saved.bestRemainingSeconds : 0,
+    };
+  } catch {
+    return { ...empty };
+  }
+}
+function savePersonalRecords(records) {
+  try {
+    localStorage.setItem(BABYMARKET_RECORD_KEY, JSON.stringify(records));
+    return true;
+  } catch {
+    return false;
+  }
+}
+function recordMenuText() {
+  const records = readPersonalRecords();
+  const best = records.bestTimeSeconds === null
+    ? "Ainda sem recorde"
+    : `Melhor tempo: ${formatTime(records.bestTimeSeconds)}`;
+  return `Vitórias: ${records.wins}  •  ${best}`;
+}
+
 function finish(won) {
   document.body.classList.remove("bm-require-landscape");
   pauseOverlay.style.display = "none";
@@ -575,12 +611,25 @@ function finish(won) {
 
   const collectedCount = items.filter((item) => item.collected).length;
   const elapsed = Math.max(0, ROUND_SECONDS - timeLeft);
+  const records = readPersonalRecords();
+  let newPersonalBest = false;
+  if (won) {
+    records.wins += 1;
+    if (records.bestTimeSeconds === null || elapsed < records.bestTimeSeconds) {
+      records.bestTimeSeconds = elapsed;
+      records.bestRemainingSeconds = Math.max(0, Math.floor(timeLeft));
+      newPersonalBest = true;
+    }
+    savePersonalRecords(records);
+  }
   uiSubtitle.textContent = won
-    ? "Parabéns! Você encontrou todos os produtos do mini supermercado."
+    ? (newPersonalBest
+        ? "NOVO RECORDE! Você completou a lista mais rápido."
+        : "Parabéns! Você encontrou todos os produtos do mini supermercado.")
     : "O tempo acabou. Tente uma rota melhor e use a escada para pegar o cereal.";
   uiSummary.textContent = won
-    ? `Produtos: ${collectedCount}/${items.length}  •  Tempo: ${formatTime(elapsed)}  •  Restante: ${formatTime(timeLeft)}`
-    : `Produtos encontrados: ${collectedCount}/${items.length}  •  Tempo jogado: ${formatTime(elapsed)}`;
+    ? `Produtos: ${collectedCount}/${items.length}  •  Tempo: ${formatTime(elapsed)}  •  Restante: ${formatTime(timeLeft)}\n${newPersonalBest ? "🏆 NOVO RECORDE PESSOAL!  •  " : ""}Vitórias: ${records.wins}  •  ${records.bestTimeSeconds === null ? "Melhor tempo: —" : "Recorde: " + formatTime(records.bestTimeSeconds)}`
+    : `Produtos encontrados: ${collectedCount}/${items.length}  •  Tempo jogado: ${formatTime(elapsed)}\n${recordMenuText()}`;
   uiSummary.style.display = "block";
 
   uiButton.textContent = "JOGAR NOVAMENTE";
@@ -1280,6 +1329,8 @@ function loadScenario() {
         uiTitle.textContent = "BABYMARKET";
         uiSubtitle.textContent =
           "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
+        uiSummary.textContent = recordMenuText();
+        uiSummary.style.display = "block";
         uiButton.textContent = "INICIAR JOGO";
         uiButton.disabled = false;
         uiButton.style.display = "inline-block";
