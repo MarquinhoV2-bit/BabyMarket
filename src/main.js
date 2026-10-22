@@ -692,24 +692,39 @@ function createBabyFromGLTF(gltf) {
   return root;
 }
 
-function switchBabyClip(rig, key) {
+function switchBabyClip(rig, key, playbackDirection = 1) {
   const action = rig.actions[key] || rig.actions.idle;
-  if (!action || rig.currentAction === action) return;
+  if (!action) return;
 
+  const direction = playbackDirection < 0 ? -1 : 1;
   const isOneShot = key === "celebrate" || key === "disappointed" || key === "jump";
-  action.reset();
-  action.enabled = true;
-  action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
-  action.clampWhenFinished = isOneShot;
-  action.setEffectiveTimeScale(1);
-  action.setEffectiveWeight(1);
+  if (rig.currentAction === action && rig.playbackDirection === direction) return;
 
-  if (rig.currentAction) action.crossFadeFrom(rig.currentAction, 0.18, true);
-  else action.fadeIn(0.18);
-  action.play();
+  if (rig.currentAction === action) {
+    // Reverse the existing climb clip from its end without switching clips.
+    action.enabled = true;
+    action.paused = false;
+    action.time = direction < 0 ? action.getClip().duration : 0;
+    action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
+    action.clampWhenFinished = isOneShot;
+    action.setEffectiveTimeScale(direction);
+    action.setEffectiveWeight(1);
+  } else {
+    action.reset();
+    action.enabled = true;
+    action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
+    action.clampWhenFinished = isOneShot;
+    action.setEffectiveTimeScale(direction);
+    if (direction < 0) action.time = action.getClip().duration;
+    action.setEffectiveWeight(1);
 
+    if (rig.currentAction) action.crossFadeFrom(rig.currentAction, 0.18, true);
+    else action.fadeIn(0.18);
+    action.play();
+  }
   rig.currentAction = action;
   rig.currentKey = key;
+  rig.playbackDirection = direction;
 }
 
 function updateGLTFBabyAnimation(dt, moved, rig) {
@@ -725,23 +740,30 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   }
 
   let desired = "idle";
+  let playbackDirection = 1;
+  const activelyTraversingLadder =
+    state === "PLAYING" && climbing && !!climbTraversal;
+
   if (rig.actionType === "celebrate" && rig.actions.celebrate) {
     desired = "celebrate";
   } else if (rig.actionType === "disappointed" && rig.actions.disappointed) {
     desired = "disappointed";
-  } else if (state === "PLAYING" && climbing && rig.actions.climb) {
+  } else if (activelyTraversingLadder && rig.actions.climb) {
     desired = "climb";
+    playbackDirection = climbTraversal.direction === "down" ? -1 : 1;
   } else if (
     state === "PLAYING" &&
-    (rig.actionType === "" || rig.actionType === "climbStart" || rig.actionType === "climbDown") &&
+    !climbTraversal &&
+    rig.actionType !== "climbStart" &&
+    rig.actionType !== "climbDown" &&
     moved
   ) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 1, 0.2, 1);
     desired = intensity >= 0.84 && rig.actions.run ? "run" : "walk";
   }
 
-  switchBabyClip(rig, desired);
-  if (rig.currentAction) {
+  switchBabyClip(rig, desired, playbackDirection);
+  if (rig.currentAction && rig.playbackDirection > 0) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
     if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.72 + intensity * 0.38);
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
@@ -1005,46 +1027,204 @@ function updatePrompt() {
   }
   hideAction();
 }
-function ladderClimbWaypoints() {
-  const x = ladderDropPosition.x;
-  const z = ladderDropPosition.z + 0.12;
+function detectLadderTreadSurfaces(root) {
+  if (!root) return [];
 
-  // Posições estimadas pelo perfil real dos cinco degraus e da plataforma superior.
-  // O modelo importado é orientado para que a subida avance no eixo -X.
-  return [
-    new THREE.Vector3(x + 0.45, 0.00, z),
-    new THREE.Vector3(x + 0.27, 0.19, z),
-    new THREE.Vector3(x + 0.19, 0.46, z),
-    new THREE.Vector3(x + 0.08, 0.74, z),
-    new THREE.Vector3(x - 0.02, 1.00, z),
-    new THREE.Vector3(x - 0.12, 1.26, z),
-    new THREE.Vector3(x - 0.23, 1.48, z),
-  ];
+  root.updateWorldMatrix(true, true);
+  const inverseRoot = root.matrixWorld.clone().invert();
+  const buckets = new Map();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const edgeA = new THREE.Vector3();
+  const edgeB = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const center = new THREE.Vector3();
+
+  root.traverse((mesh) => {
+    if (!mesh.isMesh || !mesh.geometry?.attributes?.position) return;
+    const geometry = mesh.geometry;
+    const positions = geometry.attributes.position;
+    const indices = geometry.index;
+    mesh.updateWorldMatrix(true, false);
+    const meshToRoot = inverseRoot.clone().multiply(mesh.matrixWorld);
+    const vertexCount = indices ? indices.count : positions.count;
+
+    for (let i = 0; i + 2 < vertexCount; i += 3) {
+      const ia = indices ? indices.getX(i) : i;
+      const ib = indices ? indices.getX(i + 1) : i + 1;
+      const ic = indices ? indices.getX(i + 2) : i + 2;
+      a.fromBufferAttribute(positions, ia).applyMatrix4(meshToRoot);
+      b.fromBufferAttribute(positions, ib).applyMatrix4(meshToRoot);
+      c.fromBufferAttribute(positions, ic).applyMatrix4(meshToRoot);
+
+      edgeA.subVectors(b, a);
+      edgeB.subVectors(c, a);
+      normal.crossVectors(edgeA, edgeB);
+      const doubleArea = normal.length();
+      if (doubleArea < 0.00001) continue;
+      normal.multiplyScalar(1 / doubleArea);
+      if (normal.y < 0.975) continue;
+
+      const area = doubleArea * 0.5;
+      if (area < 0.000002) continue;
+      center.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+      const key = Math.round(center.y / 0.02);
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { y: key * 0.02, area: 0, x: 0, ySum: 0, z: 0 };
+        buckets.set(key, bucket);
+      }
+      bucket.area += area;
+      bucket.x += center.x * area;
+      bucket.ySum += center.y * area;
+      bucket.z += center.z * area;
+    }
+  });
+
+  const rawLevels = [...buckets.values()]
+    .map((bucket) => ({
+      y: bucket.ySum / bucket.area,
+      x: bucket.x / bucket.area,
+      z: bucket.z / bucket.area,
+      area: bucket.area,
+    }))
+    .sort((left, right) => left.y - right.y);
+
+  const merged = [];
+  for (const level of rawLevels) {
+    const last = merged[merged.length - 1];
+    if (last && level.y - last.lastY <= 0.031) {
+      const totalArea = last.area + level.area;
+      last.x = (last.x * last.area + level.x * level.area) / totalArea;
+      last.y = (last.y * last.area + level.y * level.area) / totalArea;
+      last.z = (last.z * last.area + level.z * level.area) / totalArea;
+      last.area = totalArea;
+      last.lastY = level.y;
+    } else {
+      merged.push({ ...level, lastY: level.y });
+    }
+  }
+
+  let treads = merged
+    .filter((level) => level.area >= 0.04 && level.y > 0.06)
+    .map((level) => ({ point: new THREE.Vector3(level.x, level.y, level.z), area: level.area }));
+
+  if (treads.length > 6) {
+    treads = treads.sort((left, right) => right.area - left.area).slice(0, 6);
+  }
+  treads.sort((left, right) => left.point.y - right.point.y);
+
+  return treads.map((tread) => tread.point);
 }
 
-function startLadderTraversal(direction) {
-  if (!player) return;
-  const points = ladderClimbWaypoints();
-  if (direction === "down") points.reverse();
+function getLadderClimbPath() {
+  if (!portableLadder) return null;
+  portableLadder.updateWorldMatrix(true, true);
 
-  const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
-  // GLB olha para +Z; o protótipo procedural olha para -Z.
-  const facingX = direction === "up" ? -1 : 1;
-  player.rotation.y = usesGLTFCharacter
-    ? (facingX < 0 ? -Math.PI / 2 : Math.PI / 2)
-    : (facingX < 0 ? Math.PI / 2 : -Math.PI / 2);
+  let localSurfaces = portableLadder.userData.treadSurfacesLocal;
+  if (!Array.isArray(localSurfaces) || localSurfaces.length < 4) {
+    localSurfaces = detectLadderTreadSurfaces(portableLadder);
+    if (localSurfaces.length < 4 && !portableLadder.userData.usesGLTFAsset) {
+      // Fallback uses the original procedural staircase's actual local step layout.
+      localSurfaces = [
+        new THREE.Vector3(0.26, 0.30, 0),
+        new THREE.Vector3(0.20, 0.60, 0),
+        new THREE.Vector3(0.14, 0.90, 0),
+        new THREE.Vector3(0.08, 1.20, 0),
+        new THREE.Vector3(0, 1.48, 0),
+      ];
+    }
+    portableLadder.userData.treadSurfacesLocal = localSurfaces;
+  }
+  if (!localSurfaces || localSurfaces.length < 4) return null;
 
-  player.position.copy(points[0]);
-  climbTraversal = {
-    direction,
-    points,
-    elapsed: 0,
-    duration: 2.1,
+  const treadWorld = localSurfaces
+    .map((point) => portableLadder.localToWorld(point.clone()))
+    .sort((a, b) => a.y - b.y);
+
+  const bottom = treadWorld[0].clone();
+  const top = treadWorld[treadWorld.length - 1].clone();
+  const ascentDirection = top.clone().sub(bottom);
+  ascentDirection.y = 0;
+  if (ascentDirection.lengthSq() < 0.0001) return null;
+  ascentDirection.normalize();
+
+  // Use the ladder's current transformed bounding box to find its true base edge.
+  // This works for any world position and Y-rotation, instead of assuming global X.
+  const bounds = new THREE.Box3().setFromObject(portableLadder);
+  let minProjection = Infinity;
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) {
+        minProjection = Math.min(
+          minProjection,
+          new THREE.Vector3(x, y, z).dot(ascentDirection)
+        );
+      }
+    }
+  }
+
+  const bottomProjection = bottom.dot(ascentDirection);
+  const playerProjectionRadius =
+    Math.abs(ascentDirection.x) * HALF_X +
+    Math.abs(ascentDirection.z) * HALF_Z;
+  const entry = bottom.clone().addScaledVector(
+    ascentDirection,
+    minProjection - playerProjectionRadius - 0.055 - bottomProjection
+  );
+  entry.y = 0;
+
+  return {
+    points: [entry, ...treadWorld],
+    ascentDirection,
+    bottom,
+    top,
+    entry,
   };
 }
 
+function ladderClimbWaypoints() {
+  const path = getLadderClimbPath();
+  return path ? path.points : [];
+}
+
+function startLadderTraversal(direction) {
+  if (!player || climbTraversal) return false;
+  const path = getLadderClimbPath();
+  if (!path || path.points.length < 5) {
+    message("Não consegui identificar os degraus. Reposicione a escada e tente novamente.");
+    return false;
+  }
+
+  const points = path.points.map((point) => point.clone());
+  if (direction === "down") points.reverse();
+
+  // The actual tread centers determine the world climb direction.
+  const facing = path.ascentDirection;
+  const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+  player.rotation.y = usesGLTFCharacter
+    ? Math.atan2(facing.x, facing.z)
+    : Math.atan2(-facing.x, -facing.z);
+
+  player.position.copy(points[0]);
+  const distance = points.reduce((total, point, index) => {
+    if (index === 0) return total;
+    return total + point.distanceTo(points[index - 1]);
+  }, 0);
+
+  climbTraversal = {
+    direction,
+    points,
+    ascentDirection: path.ascentDirection.clone(),
+    elapsed: 0,
+    duration: THREE.MathUtils.clamp(distance / 0.88, 2.0, 2.8),
+  };
+  return true;
+}
+
 function updateClimbTraversal(dt) {
-  if (!climbTraversal || state !== "PLAYING" || !player) return;
+  if (!climbTraversal || state !== "PLAYING" || !player) return false;
 
   const traversal = climbTraversal;
   traversal.elapsed = Math.min(traversal.elapsed + dt, traversal.duration);
@@ -1053,9 +1233,7 @@ function updateClimbTraversal(dt) {
   );
   const segmentCount = traversal.points.length - 1;
   const segmentPosition = progress * segmentCount;
-  const segmentIndex = Math.min(
-    Math.floor(segmentPosition), segmentCount - 1
-  );
+  const segmentIndex = Math.min(Math.floor(segmentPosition), segmentCount - 1);
   const segmentProgress = progress >= 1 ? 1 : segmentPosition - segmentIndex;
 
   player.position.lerpVectors(
@@ -1065,18 +1243,38 @@ function updateClimbTraversal(dt) {
   );
 
   if (progress >= 1) {
-    player.position.copy(traversal.points[traversal.points.length - 1]);
     const direction = traversal.direction;
+    const destination = traversal.points[traversal.points.length - 1].clone();
     climbTraversal = null;
+    player.position.copy(destination);
 
     if (direction === "down") {
+      // Ensure the player is under the scene root and clear of the ladder collision box.
+      if (player.parent !== scene) scene.attach(player);
+      player.position.copy(destination);
+      player.position.y = 0;
       climbing = false;
-      message("Você desceu da escada.");
+      Object.keys(input).forEach((key) => { input[key] = false; });
+      resetJoystick();
+
+      const facing = traversal.ascentDirection;
+      const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+      player.rotation.y = usesGLTFCharacter
+        ? Math.atan2(-facing.x, -facing.z)
+        : Math.atan2(facing.x, facing.z);
+      triggerBabyAction("");
+      message("Você desceu da escada e já pode se movimentar.");
     } else {
-      message("Você está na escada. Pegue o cereal ou toque para descer.");
+      // Stop the climb clip precisely at the top landing.
+      climbing = true;
+      player.position.copy(destination);
+      triggerBabyAction("");
+      message("Você chegou ao topo. Pegue o cereal ou toque para descer.");
     }
     updatePrompt();
+    return true;
   }
+  return false;
 }
 
 function interact() {
@@ -1088,7 +1286,7 @@ function interact() {
       collect(cereal);
       return;
     }
-    startLadderTraversal("down");
+    if (!startLadderTraversal("down")) return;
     triggerBabyAction("climbDown");
     message("Descendo a escada...");
     updatePrompt();
@@ -1128,7 +1326,10 @@ function interact() {
   }
   if (ladderPlaced && dLadder <= 1.45) {
     climbing = true;
-    startLadderTraversal("up");
+    if (!startLadderTraversal("up")) {
+      climbing = false;
+      return;
+    }
     triggerBabyAction("climbStart");
     message("Subindo a escada...");
     updatePrompt();
@@ -1657,11 +1858,11 @@ function loadPortableLadderAsset() {
             throw new Error("As dimensões do GLB da escada estão fora do esperado.");
           }
 
-          // O GLB otimizado já foi exportado nas proporções do cenário:
-          // X = 0,70 m de profundidade, Y = 1,50 m de altura, Z = 0,90 m de largura.
-          // Não girar o modelo: os degraus já avançam no eixo X em direção à prateleira.
-          visual.rotation.set(0, 0, 0);
-          visual.scale.set(1, 1.50 / rawSize.y, 1);
+          // O GLB tem os degraus no eixo Z local (base em +Z, plataforma em -Z).
+          // O quarto de volta alinha a subida ao eixo X do cenário; as escalas mantêm
+          // o volume final dentro de 0,70 m de profundidade × 1,50 m de altura × 0,90 m de largura.
+          visual.rotation.set(0, Math.PI / 2, 0);
+          visual.scale.set(0.90 / rawSize.x, 1.50 / rawSize.y, 0.70 / rawSize.z);
 
           visual.traverse((object) => {
             if (object.isMesh) {
@@ -1671,12 +1872,27 @@ function loadPortableLadderAsset() {
             }
           });
 
-          // Substitui apenas os filhos visuais; a raiz semântica original é
-          // preservada para que pegar, carregar, apoiar e destacar continuem funcionando.
+          // Analyze the candidate before removing the working ladder fallback.
+          const candidateRoot = new THREE.Group();
+          candidateRoot.add(visual);
+          candidateRoot.updateMatrixWorld(true);
+          const treadSurfaces = detectLadderTreadSurfaces(candidateRoot);
+          candidateRoot.remove(visual);
+          if (treadSurfaces.length < 4) {
+            throw new Error("Não foi possível identificar as superfícies dos degraus na malha.");
+          }
+
+          // Preserve the existing interaction root and replace only its visual children.
           portableLadder.clear();
           portableLadder.add(visual);
           portableLadder.userData.usesGLTFAsset = true;
+          portableLadder.userData.treadSurfacesLocal = treadSurfaces;
           portableLadder.updateMatrixWorld(true);
+
+          console.info(
+            "[BabyMarket] Superfícies dos degraus identificadas: " +
+            treadSurfaces.length + "."
+          );
 
           console.info(
             "[BabyMarket] Escada GLB carregada e orientada; dimensões base: " +
@@ -1857,11 +2073,11 @@ function animate(now) {
   const beforeX = player ? player.position.x : 0;
   const beforeZ = player ? player.position.z : 0;
   movePlayer(dt);
-  updateClimbTraversal(dt);
+  const climbTraversalFinished = updateClimbTraversal(dt);
   const actuallyMoved = !!player &&
     Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
   if (state !== "PAUSED") {
-    updateBabyAnimation(dt, actuallyMoved);
+    updateBabyAnimation(dt, actuallyMoved && !climbTraversalFinished);
     updateCollectEffects(dt);
   }
   if (activeInteractionHighlight) activeInteractionHighlight.update();
