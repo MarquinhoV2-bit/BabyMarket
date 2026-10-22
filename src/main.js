@@ -580,7 +580,172 @@ function createBaby() {
       o.receiveShadow = true;
     }
   });
+
   return root;
+}
+
+function createBabyFromGLTF(gltf) {
+  const root = new THREE.Group();
+  root.name = "Baby_Player_GLTF";
+
+  const visual = gltf.scene;
+  visual.name = "Baby_VisualRig_GLTF";
+  visual.updateMatrixWorld(true);
+
+  const bounds = new THREE.Box3().setFromObject(visual);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (!Number.isFinite(size.y) || size.y < 0.05) {
+    throw new Error("O modelo GLB do bebê não possui altura válida.");
+  }
+
+  // Normaliza a altura ao tamanho do personagem provisório e apoia os pés no chão.
+  const targetHeight = 1.08;
+  const modelScale = targetHeight / size.y;
+  const center = bounds.getCenter(new THREE.Vector3());
+  visual.scale.setScalar(modelScale);
+  visual.position.set(
+    -center.x * modelScale,
+    -bounds.min.y * modelScale,
+    -center.z * modelScale
+  );
+  root.add(visual);
+
+  root.traverse((object) => {
+    if (object.isMesh) {
+      object.castShadow = false;
+      object.receiveShadow = true;
+      object.frustumCulled = true;
+    }
+  });
+
+  const hips = visual.getObjectByName("mixamorig:Hips");
+  const bindHipsPosition = hips
+    ? hips.position.clone()
+    : new THREE.Vector3();
+  const mixer = new THREE.AnimationMixer(visual);
+  const actions = {};
+
+  function animationKey(name) {
+    const normalized = String(name || "").toLowerCase().replace(/\.\d+$/, "");
+    if (normalized.includes("wait") || normalized.includes("idle")) return "idle";
+    if (normalized.includes("walk")) return "walk";
+    if (normalized.includes("run_upstairs") || normalized.includes("stair")) return "climb";
+    if (normalized.includes("run")) return "run";
+    if (normalized.includes("dance")) return "celebrate";
+    if (normalized.includes("frustrat")) return "disappointed";
+    if (normalized.includes("jump")) return "jump";
+    return "";
+  }
+
+  for (const sourceClip of gltf.animations || []) {
+    const clip = sourceClip.clone();
+
+    // O deslocamento horizontal do quadril fica sob controle do código de movimento.
+    // Mantemos a oscilação vertical do quadril, que dá peso à caminhada.
+    if (hips) {
+      for (const track of clip.tracks) {
+        if (
+          track.name.toLowerCase().includes("mixamorig:hips.position") &&
+          track.values &&
+          track.values.length >= 3
+        ) {
+          for (let i = 0; i < track.values.length; i += 3) {
+            track.values[i] = bindHipsPosition.x;
+            track.values[i + 2] = bindHipsPosition.z;
+          }
+        }
+      }
+    }
+
+    const key = animationKey(clip.name);
+    if (key && !actions[key]) actions[key] = mixer.clipAction(clip);
+  }
+
+  if (!actions.idle || !actions.walk) {
+    throw new Error("O personagem GLB precisa ter animações de espera e caminhada.");
+  }
+
+  const rig = {
+    isGLTF: true,
+    visual,
+    mixer,
+    actions,
+    currentAction: null,
+    currentKey: "",
+    clock: 0,
+    walkBlend: 0,
+    actionType: "",
+    actionTime: 0,
+    actionDuration: 0,
+  };
+  root.userData.babyRig = rig;
+
+  // Começa com a animação de espera em loop.
+  switchBabyClip(rig, "idle");
+  mixer.update(0);
+
+  console.info(
+    "[BabyMarket] Personagem 3D preparado; animações: " +
+    Object.keys(actions).join(", ")
+  );
+  return root;
+}
+
+function switchBabyClip(rig, key) {
+  const action = rig.actions[key] || rig.actions.idle;
+  if (!action || rig.currentAction === action) return;
+
+  const isOneShot = key === "celebrate" || key === "disappointed" || key === "jump";
+  action.reset();
+  action.enabled = true;
+  action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
+  action.clampWhenFinished = isOneShot;
+  action.setEffectiveTimeScale(1);
+  action.setEffectiveWeight(1);
+
+  if (rig.currentAction) action.crossFadeFrom(rig.currentAction, 0.18, true);
+  else action.fadeIn(0.18);
+  action.play();
+
+  rig.currentAction = action;
+  rig.currentKey = key;
+}
+
+function updateGLTFBabyAnimation(dt, moved, rig) {
+  rig.clock += dt;
+
+  if (rig.actionType && rig.actionDuration > 0) {
+    rig.actionTime += dt;
+    if (rig.actionTime >= rig.actionDuration) {
+      rig.actionType = "";
+      rig.actionTime = 0;
+      rig.actionDuration = 0;
+    }
+  }
+
+  let desired = "idle";
+  if (rig.actionType === "celebrate" && rig.actions.celebrate) {
+    desired = "celebrate";
+  } else if (rig.actionType === "disappointed" && rig.actions.disappointed) {
+    desired = "disappointed";
+  } else if (state === "PLAYING" && climbing && rig.actions.climb) {
+    desired = "climb";
+  } else if (
+    state === "PLAYING" &&
+    (rig.actionType === "" || rig.actionType === "climbStart" || rig.actionType === "climbDown") &&
+    moved
+  ) {
+    const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 1, 0.2, 1);
+    desired = intensity >= 0.84 && rig.actions.run ? "run" : "walk";
+  }
+
+  switchBabyClip(rig, desired);
+  if (rig.currentAction) {
+    const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
+    if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.72 + intensity * 0.38);
+    else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
+  }
+  rig.mixer.update(dt);
 }
 
 function makeBox(obj) {
@@ -1039,21 +1204,41 @@ function movePlayer(dt) {
   if (canStand(nx, player.position.z)) player.position.x = nx;
   if (canStand(player.position.x, nz)) player.position.z = nz;
   player.userData.moveIntensity = moveIntensity;
-  if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
+  if (!ladderCarried) {
+    // O modelo GLB do bebê tem o rosto voltado para +Z; o protótipo antigo
+    // olha para -Z. Calcular a rotação conforme a orientação de cada rig
+    // evita que ele caminhe de costas quando o analógico aponta para frente.
+    const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+    player.rotation.y = usesGLTFCharacter
+      ? Math.atan2(dx, dz)
+      : Math.atan2(-dx, -dz);
+  }
 }
 function triggerBabyAction(type) {
   if (!player) return;
   const rig = player.userData.babyRig;
   if (!rig) return;
-  const durations = {
-    pickup: 0.48,
-    ladderPickup: 0.58,
-    ladderPlace: 0.58,
-    climbStart: 0.42,
-    climbDown: 0.42,
-    celebrate: 1.28,
-    disappointed: 0.82,
-  };
+
+  const durations = rig.isGLTF
+    ? {
+        pickup: 0.48,
+        ladderPickup: 0.58,
+        ladderPlace: 0.58,
+        climbStart: 0.42,
+        climbDown: 0.42,
+        celebrate: 2.9,
+        disappointed: 3.58,
+      }
+    : {
+        pickup: 0.48,
+        ladderPickup: 0.58,
+        ladderPlace: 0.58,
+        climbStart: 0.42,
+        climbDown: 0.42,
+        celebrate: 1.28,
+        disappointed: 0.82,
+      };
+
   rig.actionType = type || "";
   rig.actionTime = 0;
   rig.actionDuration = durations[type] || 0;
@@ -1063,6 +1248,11 @@ function updateBabyAnimation(dt, moved) {
   if (!player) return;
   const rig = player.userData.babyRig;
   if (!rig) return;
+
+  if (rig.isGLTF) {
+    updateGLTFBabyAnimation(dt, moved, rig);
+    return;
+  }
 
   rig.clock += dt;
   const isWalking = moved && state === "PLAYING" && !climbing;
@@ -1443,27 +1633,70 @@ function loadScenario() {
             collected: false,
           },
         ];
-        player = createBaby();
-        player.position.copy(startPosition);
-        scene.add(player);
-        camera.position.set(0, 5.5, 13);
-        camera.lookAt(0, 0.7, 0);
-        updateList();
-        state = "MENU";
-        uiTitle.textContent = "BABYMARKET";
-        uiSubtitle.textContent =
-          "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
-        uiSummary.textContent = "";
-        uiSummary.style.display = "none";
-        updateStatsPanel();
-        statsPanel.style.display = "grid";
-        statsCaption.style.display = "block";
-        uiButton.textContent = "INICIAR JOGO";
-        uiButton.disabled = false;
+        // Enquanto o modelo é carregado, deixamos o personagem provisório oculto.
+        const fallbackPlayer = createBaby();
+        fallbackPlayer.visible = false;
+        fallbackPlayer.position.copy(startPosition);
+        player = fallbackPlayer;
+        scene.add(fallbackPlayer);
+
+        function finishScenarioReady(usingFallback) {
+          camera.position.set(0, 5.5, 13);
+          camera.lookAt(0, 0.7, 0);
+          updateList();
+          state = "MENU";
+          uiTitle.textContent = "BABYMARKET";
+          uiSubtitle.textContent = usingFallback
+            ? "O cenário está pronto, mas o modelo 3D não carregou. Vamos usar o personagem provisório por enquanto."
+            : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
+          uiSummary.textContent = "";
+          uiSummary.style.display = "none";
+          updateStatsPanel();
+          statsPanel.style.display = "grid";
+          statsCaption.style.display = "block";
+          uiButton.textContent = "INICIAR JOGO";
+          uiButton.disabled = false;
+          uiButton.style.display = "inline-block";
+          loadError.style.display = "none";
+          uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
+          console.info(
+            "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
+            " colisores; " + items.length + " itens de teste; personagem " +
+            (usingFallback ? "provisório." : "GLB ativo.")
+          );
+        }
+
+        state = "LOADING_CHARACTER";
+        uiTitle.textContent = "CARREGANDO PERSONAGEM 3D...";
+        uiSubtitle.textContent = "Preparando o bebê e suas animações.";
+        uiButton.textContent = "CARREGANDO...";
+        uiButton.disabled = true;
         uiButton.style.display = "inline-block";
-        loadError.style.display = "none";
-        console.info(
-          `[BabyMarket] GLB carregado: ${colliderBoxes.length} colisores; ${items.length} itens de teste.`
+
+        const babyUrl = new URL("../assets/models/baby-player.glb?v=1", import.meta.url).href;
+        new GLTFLoader().load(
+          babyUrl,
+          (babyGltf) => {
+            try {
+              const importedPlayer = createBabyFromGLTF(babyGltf);
+              importedPlayer.position.copy(startPosition);
+              importedPlayer.rotation.copy(fallbackPlayer.rotation);
+              scene.remove(fallbackPlayer);
+              player = importedPlayer;
+              scene.add(player);
+              finishScenarioReady(false);
+            } catch (characterError) {
+              console.error("[BabyMarket] Falha ao preparar o personagem GLB; usando provisório.", characterError);
+              fallbackPlayer.visible = true;
+              finishScenarioReady(true);
+            }
+          },
+          undefined,
+          (characterError) => {
+            console.error("[BabyMarket] Falha ao carregar o personagem GLB; usando provisório.", characterError);
+            fallbackPlayer.visible = true;
+            finishScenarioReady(true);
+          }
         );
       } catch (e) {
         showLoadError(e);
