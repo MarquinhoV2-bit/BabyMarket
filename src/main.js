@@ -314,6 +314,7 @@ let items = [];
 let ladderCarried = false;
 let ladderPlaced = false;
 let climbing = false;
+let climbTraversal = null;
 let state = "LOADING";
 let timeLeft = ROUND_SECONDS;
 let lastTimerText = -1;
@@ -801,6 +802,7 @@ function resetLadder() {
   ladderCarried = false;
   ladderPlaced = false;
   climbing = false;
+  climbTraversal = null;
 }
 function formatTime(totalSeconds) {
   const total = Math.max(0, Math.floor(totalSeconds));
@@ -935,6 +937,11 @@ function updatePrompt() {
   }
 
   if (climbing) {
+    if (climbTraversal) {
+      hideAction();
+      message(climbTraversal.direction === "up" ? "Subindo a escada..." : "Descendo a escada...");
+      return;
+    }
     const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
     if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
       setInteractionHighlight(cereal.object, 0x86efac);
@@ -998,23 +1005,92 @@ function updatePrompt() {
   }
   hideAction();
 }
+function ladderClimbWaypoints() {
+  const x = ladderDropPosition.x;
+  const z = ladderDropPosition.z + 0.12;
+
+  // Posições estimadas pelo perfil real dos cinco degraus e da plataforma superior.
+  // O modelo importado é orientado para que a subida avance no eixo -X.
+  return [
+    new THREE.Vector3(x + 0.45, 0.00, z),
+    new THREE.Vector3(x + 0.27, 0.19, z),
+    new THREE.Vector3(x + 0.19, 0.46, z),
+    new THREE.Vector3(x + 0.08, 0.74, z),
+    new THREE.Vector3(x - 0.02, 1.00, z),
+    new THREE.Vector3(x - 0.12, 1.26, z),
+    new THREE.Vector3(x - 0.23, 1.48, z),
+  ];
+}
+
+function startLadderTraversal(direction) {
+  if (!player) return;
+  const points = ladderClimbWaypoints();
+  if (direction === "down") points.reverse();
+
+  const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+  // GLB olha para +Z; o protótipo procedural olha para -Z.
+  const facingX = direction === "up" ? -1 : 1;
+  player.rotation.y = usesGLTFCharacter
+    ? (facingX < 0 ? -Math.PI / 2 : Math.PI / 2)
+    : (facingX < 0 ? Math.PI / 2 : -Math.PI / 2);
+
+  player.position.copy(points[0]);
+  climbTraversal = {
+    direction,
+    points,
+    elapsed: 0,
+    duration: 2.1,
+  };
+}
+
+function updateClimbTraversal(dt) {
+  if (!climbTraversal || state !== "PLAYING" || !player) return;
+
+  const traversal = climbTraversal;
+  traversal.elapsed = Math.min(traversal.elapsed + dt, traversal.duration);
+  const progress = THREE.MathUtils.clamp(
+    traversal.elapsed / traversal.duration, 0, 1
+  );
+  const segmentCount = traversal.points.length - 1;
+  const segmentPosition = progress * segmentCount;
+  const segmentIndex = Math.min(
+    Math.floor(segmentPosition), segmentCount - 1
+  );
+  const segmentProgress = progress >= 1 ? 1 : segmentPosition - segmentIndex;
+
+  player.position.lerpVectors(
+    traversal.points[segmentIndex],
+    traversal.points[segmentIndex + 1],
+    segmentProgress
+  );
+
+  if (progress >= 1) {
+    player.position.copy(traversal.points[traversal.points.length - 1]);
+    const direction = traversal.direction;
+    climbTraversal = null;
+
+    if (direction === "down") {
+      climbing = false;
+      message("Você desceu da escada.");
+    } else {
+      message("Você está na escada. Pegue o cereal ou toque para descer.");
+    }
+    updatePrompt();
+  }
+}
+
 function interact() {
   if (state !== "PLAYING" || !player || !portableLadder) return;
   if (climbing) {
+    if (climbTraversal) return;
     const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
     if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
       collect(cereal);
       return;
     }
-    player.position.set(
-      ladderDropPosition.x + 0.72,
-      0,
-      ladderDropPosition.z + 0.12
-    );
-    player.rotation.y = 0;
-    climbing = false;
+    startLadderTraversal("down");
     triggerBabyAction("climbDown");
-    message("Você desceu da escada.");
+    message("Descendo a escada...");
     updatePrompt();
     return;
   }
@@ -1052,14 +1128,9 @@ function interact() {
   }
   if (ladderPlaced && dLadder <= 1.45) {
     climbing = true;
-    player.position.set(
-      ladderDropPosition.x + 0.72,
-      1.03,
-      ladderDropPosition.z + 0.12
-    );
-    player.rotation.y = Math.PI / 2;
+    startLadderTraversal("up");
     triggerBabyAction("climbStart");
-    message("Subiu na escada. Agora pegue o cereal!");
+    message("Subindo a escada...");
     updatePrompt();
     return;
   }
@@ -1560,6 +1631,73 @@ function showLoadError(error) {
   uiButton.textContent = "AGUARDANDO CORREÇÃO";
   uiButton.disabled = true;
 }
+function loadPortableLadderAsset() {
+  return new Promise((resolve) => {
+    if (!portableLadder) {
+      resolve(false);
+      return;
+    }
+
+    const url = new URL("../assets/models/babymarket-ladder.glb?v=1", import.meta.url).href;
+    new GLTFLoader().load(
+      url,
+      (gltf) => {
+        try {
+          const visual = gltf.scene;
+          visual.name = "PortableLadder_Asset_GLTF";
+          visual.position.set(0, 0, 0);
+          visual.updateMatrixWorld(true);
+
+          const rawBounds = new THREE.Box3().setFromObject(visual);
+          const rawSize = rawBounds.getSize(new THREE.Vector3());
+          if (
+            rawSize.y < 1.2 || rawSize.y > 1.8 ||
+            rawSize.x < 0.35 || rawSize.z < 0.35
+          ) {
+            throw new Error("As dimensões do GLB da escada estão fora do esperado.");
+          }
+
+          // O GLB exportado veio com os degraus no eixo Z. Giramos 90° para
+          // a subida apontar para a prateleira (-X), redimensionando os eixos
+          // laterais para manter o envelope de 0,70 × 1,50 × 0,90 m.
+          visual.rotation.set(0, Math.PI / 2, 0);
+          visual.scale.set(0.90 / rawSize.x, 1, 0.70 / rawSize.z);
+
+          visual.traverse((object) => {
+            if (object.isMesh) {
+              object.castShadow = true;
+              object.receiveShadow = true;
+              object.frustumCulled = true;
+            }
+          });
+
+          // Substitui apenas os filhos visuais; a raiz semântica original é
+          // preservada para que pegar, carregar, apoiar e destacar continuem funcionando.
+          portableLadder.clear();
+          portableLadder.add(visual);
+          portableLadder.userData.usesGLTFAsset = true;
+          portableLadder.updateMatrixWorld(true);
+
+          console.info(
+            "[BabyMarket] Escada GLB carregada e orientada; dimensões base: " +
+            rawSize.x.toFixed(2) + " × " + rawSize.y.toFixed(2) + " × " +
+            rawSize.z.toFixed(2) + " m."
+          );
+          resolve(true);
+        } catch (error) {
+          console.warn("[BabyMarket] Não foi possível preparar a escada GLB; usando a escada provisória.", error);
+          resolve(false);
+        }
+      },
+      undefined,
+      (error) => {
+        console.info("[BabyMarket] Escada GLB não encontrada; usando a escada provisória.", error);
+        resolve(false);
+      }
+    );
+  });
+}
+
 function loadScenario() {
   const url = new URL("../BabyMarket_Cenario_v1.glb?v=1", import.meta.url).href;
   new GLTFLoader().load(
@@ -1633,7 +1771,8 @@ function loadScenario() {
             collected: false,
           },
         ];
-        // Enquanto o modelo é carregado, deixamos o personagem provisório oculto.
+        // O fallback visual fica disponível caso o novo GLB não carregue.
+        const ladderAssetReady = loadPortableLadderAsset();
         const fallbackPlayer = createBaby();
         fallbackPlayer.visible = false;
         fallbackPlayer.position.copy(startPosition);
@@ -1641,29 +1780,34 @@ function loadScenario() {
         scene.add(fallbackPlayer);
 
         function finishScenarioReady(usingFallback) {
-          camera.position.set(0, 5.5, 13);
-          camera.lookAt(0, 0.7, 0);
-          updateList();
-          state = "MENU";
-          uiTitle.textContent = "BABYMARKET";
-          uiSubtitle.textContent = usingFallback
-            ? "O cenário está pronto, mas o modelo 3D não carregou. Vamos usar o personagem provisório por enquanto."
-            : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
-          uiSummary.textContent = "";
-          uiSummary.style.display = "none";
-          updateStatsPanel();
-          statsPanel.style.display = "grid";
-          statsCaption.style.display = "block";
-          uiButton.textContent = "INICIAR JOGO";
-          uiButton.disabled = false;
-          uiButton.style.display = "inline-block";
-          loadError.style.display = "none";
-          uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
-          console.info(
-            "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
-            " colisores; " + items.length + " itens de teste; personagem " +
-            (usingFallback ? "provisório." : "GLB ativo.")
-          );
+          ladderAssetReady.then((usingCustomLadder) => {
+            camera.position.set(0, 5.5, 13);
+            camera.lookAt(0, 0.7, 0);
+            updateList();
+            state = "MENU";
+            uiTitle.textContent = "BABYMARKET";
+            uiSubtitle.textContent = usingFallback
+              ? "O cenário está pronto, mas o bebê 3D não carregou. Vamos usar o personagem provisório."
+              : (!usingCustomLadder
+                ? "O bebê 3D carregou, mas a escada otimizada não foi encontrada. Usando a escada provisória."
+                : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.");
+            uiSummary.textContent = "";
+            uiSummary.style.display = "none";
+            updateStatsPanel();
+            statsPanel.style.display = "grid";
+            statsCaption.style.display = "block";
+            uiButton.textContent = "INICIAR JOGO";
+            uiButton.disabled = false;
+            uiButton.style.display = "inline-block";
+            loadError.style.display = "none";
+            uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
+            console.info(
+              "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
+              " colisores; " + items.length + " itens de teste; personagem " +
+              (usingFallback ? "provisório." : "GLB ativo.") + "; escada " +
+              (usingCustomLadder ? "GLB otimizada." : "provisória.")
+            );
+          });
         }
 
         state = "LOADING_CHARACTER";
@@ -1713,6 +1857,7 @@ function animate(now) {
   const beforeX = player ? player.position.x : 0;
   const beforeZ = player ? player.position.z : 0;
   movePlayer(dt);
+  updateClimbTraversal(dt);
   const actuallyMoved = !!player &&
     Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
   if (state !== "PAUSED") {
