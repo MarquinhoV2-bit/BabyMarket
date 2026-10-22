@@ -1657,11 +1657,11 @@ function loadPortableLadderAsset() {
             throw new Error("As dimensões do GLB da escada estão fora do esperado.");
           }
 
-          // O GLB exportado veio com os degraus no eixo Z. Giramos 90° para
-          // a subida apontar para a prateleira (-X), redimensionando os eixos
-          // laterais para manter o envelope de 0,70 × 1,50 × 0,90 m.
-          visual.rotation.set(0, Math.PI / 2, 0);
-          visual.scale.set(0.90 / rawSize.x, 1, 0.70 / rawSize.z);
+          // O GLB otimizado já foi exportado nas proporções do cenário:
+          // X = 0,70 m de profundidade, Y = 1,50 m de altura, Z = 0,90 m de largura.
+          // Não girar o modelo: os degraus já avançam no eixo X em direção à prateleira.
+          visual.rotation.set(0, 0, 0);
+          visual.scale.set(1, 1.50 / rawSize.y, 1);
 
           visual.traverse((object) => {
             if (object.isMesh) {
