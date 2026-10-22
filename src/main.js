@@ -1204,7 +1204,15 @@ function movePlayer(dt) {
   if (canStand(nx, player.position.z)) player.position.x = nx;
   if (canStand(player.position.x, nz)) player.position.z = nz;
   player.userData.moveIntensity = moveIntensity;
-  if (!ladderCarried) player.rotation.y = Math.atan2(-dx, -dz);
+  if (!ladderCarried) {
+    // O modelo GLB do bebê tem o rosto voltado para +Z; o protótipo antigo
+    // olha para -Z. Calcular a rotação conforme a orientação de cada rig
+    // evita que ele caminhe de costas quando o analógico aponta para frente.
+    const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+    player.rotation.y = usesGLTFCharacter
+      ? Math.atan2(dx, dz)
+      : Math.atan2(-dx, -dz);
+  }
 }
 function triggerBabyAction(type) {
   if (!player) return;
