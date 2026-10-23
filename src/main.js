@@ -1622,24 +1622,37 @@ function updateJump(dt) {
   const nextVelocity = jumpVelocity - JUMP_GRAVITY * dt;
   const nextY = player.position.y + nextVelocity * dt;
 
-  // Testa apenas a área da cabeça ao subir. Testar o corpo inteiro com canStand()
-  // também colidia com o piso e podia cancelar o salto antes de ele começar.
+  // Verifica somente obstáculos acima da altura normal do personagem.
+  // Isso evita que as caixas de colisão laterais cancelem o salto quando o bebê
+  // está andando/correndo junto a uma prateleira ou outro objeto.
   if (nextY > player.position.y) {
-    const headBox = new THREE.Box3(
+    const currentTop = player.position.y + PLAYER_HEIGHT;
+    const nextTop = nextY + PLAYER_HEIGHT;
+    const upwardClearance = new THREE.Box3(
       new THREE.Vector3(
         player.position.x - HALF_X,
-        nextY + PLAYER_HEIGHT * 0.72,
+        currentTop - 0.005,
         player.position.z - HALF_Z
       ),
       new THREE.Vector3(
         player.position.x + HALF_X,
-        nextY + PLAYER_HEIGHT + 0.04,
+        nextTop + 0.005,
         player.position.z + HALF_Z
       )
     );
-    const headBlocked = colliderBoxes.some(({ box }) => headBox.intersectsBox(box)) ||
-      (ladderPlaced && portableLadder && !climbing &&
-        headBox.intersectsBox(new THREE.Box3().setFromObject(portableLadder)));
+    const blocksHeadroom = (box) => {
+      // Collisores que já sobem pela altura normal do corpo são tratados pelo
+      // movimento horizontal (canStand); aqui só contam obstáculos suspensos.
+      if (box.max.y <= currentTop + 0.001) return false;
+      if (box.min.y < currentTop - 0.02) return false;
+      return upwardClearance.intersectsBox(box);
+    };
+    const ladderBox = ladderPlaced && portableLadder && !climbing
+      ? new THREE.Box3().setFromObject(portableLadder)
+      : null;
+    const headBlocked =
+      colliderBoxes.some(({ box }) => blocksHeadroom(box)) ||
+      (!!ladderBox && blocksHeadroom(ladderBox));
     if (headBlocked) {
       jumpVelocity = 0;
       return;
@@ -1980,7 +1993,19 @@ function setupControls() {
   renderer.domElement.addEventListener("lostpointercapture", endCameraDrag);
 
   interactButton.addEventListener("click", (e) => { e.preventDefault(); interact(); });
-  jumpButton.addEventListener("click", (e) => { e.preventDefault(); startJump(); });
+  // Dispara no pointerdown para funcionar também com um dedo segurando o
+  // analógico e outro tocando PULAR; não depende da síntese posterior de click.
+  jumpButton.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startJump();
+  });
+  // Mantém acessibilidade por teclado/leitor de tela, sem duplicar o toque.
+  jumpButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (e.detail === 0) startJump();
+  });
   listToggle.addEventListener("click", () => listPanel.classList.toggle("open"));
   cameraResetButton.addEventListener("click", (e) => {
     e.preventDefault();
@@ -2257,8 +2282,10 @@ function animate(now) {
   lastFrame = now;
   const beforeX = player ? player.position.x : 0;
   const beforeZ = player ? player.position.z : 0;
-  movePlayer(dt);
+  // Atualiza primeiro o eixo vertical; assim, o primeiro quadro do salto
+  // não é deslocado pelo analógico antes da verificação de espaço livre.
   updateJump(dt);
+  movePlayer(dt);
   const climbTraversalFinished = updateClimbTraversal(dt);
   const actuallyMoved = !!player &&
     Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
