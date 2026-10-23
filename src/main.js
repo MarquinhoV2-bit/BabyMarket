@@ -314,6 +314,7 @@ let items = [];
 let ladderCarried = false;
 let ladderPlaced = false;
 let climbing = false;
+let climbTraversal = null;
 let state = "LOADING";
 let timeLeft = ROUND_SECONDS;
 let lastTimerText = -1;
@@ -691,24 +692,39 @@ function createBabyFromGLTF(gltf) {
   return root;
 }
 
-function switchBabyClip(rig, key) {
+function switchBabyClip(rig, key, playbackDirection = 1) {
   const action = rig.actions[key] || rig.actions.idle;
-  if (!action || rig.currentAction === action) return;
+  if (!action) return;
 
+  const direction = playbackDirection < 0 ? -1 : 1;
   const isOneShot = key === "celebrate" || key === "disappointed" || key === "jump";
-  action.reset();
-  action.enabled = true;
-  action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
-  action.clampWhenFinished = isOneShot;
-  action.setEffectiveTimeScale(1);
-  action.setEffectiveWeight(1);
+  if (rig.currentAction === action && rig.playbackDirection === direction) return;
 
-  if (rig.currentAction) action.crossFadeFrom(rig.currentAction, 0.18, true);
-  else action.fadeIn(0.18);
-  action.play();
+  if (rig.currentAction === action) {
+    // Reverse the existing climb clip from its end without switching clips.
+    action.enabled = true;
+    action.paused = false;
+    action.time = direction < 0 ? action.getClip().duration : 0;
+    action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
+    action.clampWhenFinished = isOneShot;
+    action.setEffectiveTimeScale(direction);
+    action.setEffectiveWeight(1);
+  } else {
+    action.reset();
+    action.enabled = true;
+    action.setLoop(isOneShot ? THREE.LoopOnce : THREE.LoopRepeat, isOneShot ? 1 : Infinity);
+    action.clampWhenFinished = isOneShot;
+    action.setEffectiveTimeScale(direction);
+    if (direction < 0) action.time = action.getClip().duration;
+    action.setEffectiveWeight(1);
 
+    if (rig.currentAction) action.crossFadeFrom(rig.currentAction, 0.18, true);
+    else action.fadeIn(0.18);
+    action.play();
+  }
   rig.currentAction = action;
   rig.currentKey = key;
+  rig.playbackDirection = direction;
 }
 
 function updateGLTFBabyAnimation(dt, moved, rig) {
@@ -724,25 +740,32 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   }
 
   let desired = "idle";
+  let playbackDirection = 1;
+  const activelyTraversingLadder =
+    state === "PLAYING" && climbing && !!climbTraversal;
+
   if (rig.actionType === "celebrate" && rig.actions.celebrate) {
     desired = "celebrate";
   } else if (rig.actionType === "disappointed" && rig.actions.disappointed) {
     desired = "disappointed";
-  } else if (state === "PLAYING" && climbing && rig.actions.climb) {
+  } else if (activelyTraversingLadder && rig.actions.climb) {
     desired = "climb";
+    playbackDirection = climbTraversal.direction === "down" ? -1 : 1;
   } else if (
     state === "PLAYING" &&
-    (rig.actionType === "" || rig.actionType === "climbStart" || rig.actionType === "climbDown") &&
+    !climbTraversal &&
+    rig.actionType !== "climbStart" &&
+    rig.actionType !== "climbDown" &&
     moved
   ) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 1, 0.2, 1);
     desired = intensity >= 0.84 && rig.actions.run ? "run" : "walk";
   }
 
-  switchBabyClip(rig, desired);
-  if (rig.currentAction) {
+  switchBabyClip(rig, desired, playbackDirection);
+  if (rig.currentAction && rig.playbackDirection > 0) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
-    if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.72 + intensity * 0.38);
+    if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.58 + intensity * 0.22);
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
   rig.mixer.update(dt);
@@ -801,6 +824,7 @@ function resetLadder() {
   ladderCarried = false;
   ladderPlaced = false;
   climbing = false;
+  climbTraversal = null;
 }
 function formatTime(totalSeconds) {
   const total = Math.max(0, Math.floor(totalSeconds));
@@ -935,6 +959,11 @@ function updatePrompt() {
   }
 
   if (climbing) {
+    if (climbTraversal) {
+      hideAction();
+      message(climbTraversal.direction === "up" ? "Subindo a escada..." : "Descendo a escada...");
+      return;
+    }
     const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
     if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
       setInteractionHighlight(cereal.object, 0x86efac);
@@ -998,23 +1027,327 @@ function updatePrompt() {
   }
   hideAction();
 }
+function detectLadderTreadSurfaces(root) {
+  if (!root) return [];
+
+  root.updateWorldMatrix(true, true);
+  const inverseRoot = root.matrixWorld.clone().invert();
+  const buckets = new Map();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const edgeA = new THREE.Vector3();
+  const edgeB = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const center = new THREE.Vector3();
+
+  root.traverse((mesh) => {
+    if (!mesh.isMesh || !mesh.geometry?.attributes?.position) return;
+    const geometry = mesh.geometry;
+    const positions = geometry.attributes.position;
+    const indices = geometry.index;
+    mesh.updateWorldMatrix(true, false);
+    const meshToRoot = inverseRoot.clone().multiply(mesh.matrixWorld);
+    const vertexCount = indices ? indices.count : positions.count;
+
+    for (let i = 0; i + 2 < vertexCount; i += 3) {
+      const ia = indices ? indices.getX(i) : i;
+      const ib = indices ? indices.getX(i + 1) : i + 1;
+      const ic = indices ? indices.getX(i + 2) : i + 2;
+      a.fromBufferAttribute(positions, ia).applyMatrix4(meshToRoot);
+      b.fromBufferAttribute(positions, ib).applyMatrix4(meshToRoot);
+      c.fromBufferAttribute(positions, ic).applyMatrix4(meshToRoot);
+
+      edgeA.subVectors(b, a);
+      edgeB.subVectors(c, a);
+      normal.crossVectors(edgeA, edgeB);
+      const doubleArea = normal.length();
+      if (doubleArea < 0.00001) continue;
+      normal.multiplyScalar(1 / doubleArea);
+      if (normal.y < 0.975) continue;
+
+      const area = doubleArea * 0.5;
+      if (area < 0.000002) continue;
+      center.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+      const key = Math.round(center.y / 0.02);
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { y: key * 0.02, area: 0, x: 0, ySum: 0, z: 0 };
+        buckets.set(key, bucket);
+      }
+      bucket.area += area;
+      bucket.x += center.x * area;
+      bucket.ySum += center.y * area;
+      bucket.z += center.z * area;
+    }
+  });
+
+  const rawLevels = [...buckets.values()]
+    .map((bucket) => ({
+      y: bucket.ySum / bucket.area,
+      x: bucket.x / bucket.area,
+      z: bucket.z / bucket.area,
+      area: bucket.area,
+    }))
+    .sort((left, right) => left.y - right.y);
+
+  const merged = [];
+  for (const level of rawLevels) {
+    const last = merged[merged.length - 1];
+    if (last && level.y - last.lastY <= 0.031) {
+      const totalArea = last.area + level.area;
+      last.x = (last.x * last.area + level.x * level.area) / totalArea;
+      last.y = (last.y * last.area + level.y * level.area) / totalArea;
+      last.z = (last.z * last.area + level.z * level.area) / totalArea;
+      last.area = totalArea;
+      last.lastY = level.y;
+    } else {
+      merged.push({ ...level, lastY: level.y });
+    }
+  }
+
+  let treads = merged
+    .filter((level) => level.area >= 0.04 && level.y > 0.06)
+    .map((level) => ({ point: new THREE.Vector3(level.x, level.y, level.z), area: level.area }));
+
+  if (treads.length > 6) {
+    treads = treads.sort((left, right) => right.area - left.area).slice(0, 6);
+  }
+  treads.sort((left, right) => left.point.y - right.point.y);
+
+  return treads.map((tread) => tread.point);
+}
+
+function getLadderClimbPath() {
+  if (!portableLadder) return null;
+  portableLadder.updateWorldMatrix(true, true);
+
+  let localSurfaces = portableLadder.userData.treadSurfacesLocal;
+  if (!Array.isArray(localSurfaces) || localSurfaces.length < 4) {
+    localSurfaces = detectLadderTreadSurfaces(portableLadder);
+    if (localSurfaces.length < 4 && !portableLadder.userData.usesGLTFAsset) {
+      // Fallback uses the original procedural staircase's actual local step layout.
+      localSurfaces = [
+        new THREE.Vector3(0.26, 0.30, 0),
+        new THREE.Vector3(0.20, 0.60, 0),
+        new THREE.Vector3(0.14, 0.90, 0),
+        new THREE.Vector3(0.08, 1.20, 0),
+        new THREE.Vector3(0, 1.48, 0),
+      ];
+    }
+    portableLadder.userData.treadSurfacesLocal = localSurfaces;
+  }
+  if (!localSurfaces || localSurfaces.length < 4) return null;
+
+  const treadWorld = localSurfaces
+    .map((point) => portableLadder.localToWorld(point.clone()))
+    .sort((a, b) => a.y - b.y);
+
+  const bottom = treadWorld[0].clone();
+  const top = treadWorld[treadWorld.length - 1].clone();
+  const ascentDirection = top.clone().sub(bottom);
+  ascentDirection.y = 0;
+  if (ascentDirection.lengthSq() < 0.0001) return null;
+  ascentDirection.normalize();
+
+  // Use the ladder's current transformed bounding box to find its true base edge.
+  // This works for any world position and Y-rotation, instead of assuming global X.
+  const bounds = new THREE.Box3().setFromObject(portableLadder);
+  let minProjection = Infinity;
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) {
+        minProjection = Math.min(
+          minProjection,
+          new THREE.Vector3(x, y, z).dot(ascentDirection)
+        );
+      }
+    }
+  }
+
+  const bottomProjection = bottom.dot(ascentDirection);
+  const playerProjectionRadius =
+    Math.abs(ascentDirection.x) * HALF_X +
+    Math.abs(ascentDirection.z) * HALF_Z;
+  const entry = bottom.clone().addScaledVector(
+    ascentDirection,
+    minProjection - playerProjectionRadius - 0.055 - bottomProjection
+  );
+  entry.y = 0;
+
+  return {
+    points: [entry, ...treadWorld],
+    ascentDirection,
+    bottom,
+    top,
+    entry,
+  };
+}
+
+function ladderClimbWaypoints() {
+  const path = getLadderClimbPath();
+  return path ? path.points : [];
+}
+
+function faceLadderAlongAscent(ascentDirection) {
+  if (!player || !ascentDirection) return;
+  const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+  // Fica voltado para cima da escada tanto na subida quanto na descida de costas.
+  player.rotation.y = usesGLTFCharacter
+    ? Math.atan2(ascentDirection.x, ascentDirection.z)
+    : Math.atan2(-ascentDirection.x, -ascentDirection.z);
+}
+
+function placePlayerSafelyBesideLadder() {
+  if (!player || !portableLadder) return;
+  const path = getLadderClimbPath();
+  if (path?.entry) {
+    player.position.copy(path.entry);
+    player.position.y = 0;
+    faceLadderAlongAscent(path.ascentDirection);
+    return;
+  }
+
+  // Fallback geometrically derived from the ladder bounding box.
+  portableLadder.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3().setFromObject(portableLadder);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const direction = new THREE.Vector3(
+    player.position.x - center.x, 0, player.position.z - center.z
+  );
+  if (direction.lengthSq() < 0.0001) direction.set(0, 0, 1);
+  direction.normalize();
+  const size = bounds.getSize(new THREE.Vector3());
+  const ladderRadius =
+    Math.abs(direction.x) * size.x * 0.5 +
+    Math.abs(direction.z) * size.z * 0.5;
+  const playerRadius =
+    Math.abs(direction.x) * HALF_X +
+    Math.abs(direction.z) * HALF_Z;
+  player.position.set(
+    center.x + direction.x * (ladderRadius + playerRadius + 0.12),
+    0,
+    center.z + direction.z * (ladderRadius + playerRadius + 0.12)
+  );
+  faceLadderAlongAscent(direction.clone().negate());
+}
+
+function startLadderTraversal(direction) {
+  if (!player || climbTraversal) return false;
+  const path = getLadderClimbPath();
+  if (!path || path.points.length < 5) {
+    message("Não consegui identificar os degraus. Reposicione a escada e tente novamente.");
+    return false;
+  }
+
+  const points = path.points.map((point) => point.clone());
+  if (direction === "down") points.reverse();
+
+  // The actual tread centers determine the world climb direction.
+  const facing = path.ascentDirection;
+  faceLadderAlongAscent(facing);
+
+  player.position.copy(points[0]);
+  const distance = points.reduce((total, point, index) => {
+    if (index === 0) return total;
+    return total + point.distanceTo(points[index - 1]);
+  }, 0);
+
+  const segmentLengths = points.slice(1).map((point, index) =>
+    point.distanceTo(points[index])
+  );
+  const cumulativeLengths = [0];
+  for (const length of segmentLengths) {
+    cumulativeLengths.push(cumulativeLengths[cumulativeLengths.length - 1] + length);
+  }
+
+  climbTraversal = {
+    direction,
+    points,
+    segmentLengths,
+    cumulativeLengths,
+    totalDistance: distance,
+    ascentDirection: path.ascentDirection.clone(),
+    elapsed: 0,
+    duration: THREE.MathUtils.clamp(distance / 0.80, 2.2, 3.0),
+  };
+  return true;
+}
+
+function updateClimbTraversal(dt) {
+  if (!climbTraversal || state !== "PLAYING" || !player) return false;
+
+  const traversal = climbTraversal;
+  traversal.elapsed = Math.min(traversal.elapsed + dt, traversal.duration);
+  const progress = THREE.MathUtils.clamp(
+    traversal.elapsed / traversal.duration, 0, 1
+  );
+  const totalDistance = traversal.totalDistance || 1;
+  const distanceAlong = progress * totalDistance;
+  let segmentIndex = traversal.segmentLengths.length - 1;
+  for (let i = 0; i < traversal.segmentLengths.length; i++) {
+    if (distanceAlong <= traversal.cumulativeLengths[i + 1]) {
+      segmentIndex = i;
+      break;
+    }
+  }
+  const segmentStart = traversal.cumulativeLengths[segmentIndex];
+  const segmentLength = Math.max(traversal.segmentLengths[segmentIndex], 0.0001);
+  const localT = progress >= 1
+    ? 1
+    : THREE.MathUtils.clamp((distanceAlong - segmentStart) / segmentLength, 0, 1);
+  // Ease on/off at each footfall: less mechanical, more natural movement between treads.
+  const easedT = localT * localT * (3 - 2 * localT);
+
+  player.position.lerpVectors(
+    traversal.points[segmentIndex],
+    traversal.points[segmentIndex + 1],
+    easedT
+  );
+
+  if (progress >= 1) {
+    const direction = traversal.direction;
+    const destination = traversal.points[traversal.points.length - 1].clone();
+    climbTraversal = null;
+    player.position.copy(destination);
+
+    if (direction === "down") {
+      // Ensure the player is under the scene root and clear of the ladder collision box.
+      if (player.parent !== scene) scene.attach(player);
+      player.position.copy(destination);
+      player.position.y = 0;
+      climbing = false;
+      Object.keys(input).forEach((key) => { input[key] = false; });
+      resetJoystick();
+
+      faceLadderAlongAscent(traversal.ascentDirection);
+      triggerBabyAction("");
+      message("Você desceu da escada e já pode se movimentar.");
+    } else {
+      // Stop the climb clip precisely at the top landing.
+      climbing = true;
+      player.position.copy(destination);
+      triggerBabyAction("");
+      message("Você chegou ao topo. Pegue o cereal ou toque para descer.");
+    }
+    updatePrompt();
+    return true;
+  }
+  return false;
+}
+
 function interact() {
   if (state !== "PLAYING" || !player || !portableLadder) return;
   if (climbing) {
+    if (climbTraversal) return;
     const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
     if (cereal && distXZ(player.position, cereal.position) <= HIGH_REACH) {
       collect(cereal);
       return;
     }
-    player.position.set(
-      ladderDropPosition.x + 0.72,
-      0,
-      ladderDropPosition.z + 0.12
-    );
-    player.rotation.y = 0;
-    climbing = false;
+    if (!startLadderTraversal("down")) return;
     triggerBabyAction("climbDown");
-    message("Você desceu da escada.");
+    message("Descendo a escada...");
     updatePrompt();
     return;
   }
@@ -1030,6 +1363,11 @@ function interact() {
       portableLadder.scale.set(1, 1, 1);
       ladderCarried = false;
       ladderPlaced = true;
+      climbTraversal = null;
+      // A escada foi colocada sob/ao lado do jogador em algumas posições.
+      // Saia para um ponto livre calculado pelo volume real da escada antes de
+      // reativar a colisão, para não prender o personagem no lugar.
+      placePlayerSafelyBesideLadder();
       triggerBabyAction("ladderPlace");
       message("Escada posicionada! Aproxime-se para subir.");
     } else {
@@ -1052,14 +1390,12 @@ function interact() {
   }
   if (ladderPlaced && dLadder <= 1.45) {
     climbing = true;
-    player.position.set(
-      ladderDropPosition.x + 0.72,
-      1.03,
-      ladderDropPosition.z + 0.12
-    );
-    player.rotation.y = Math.PI / 2;
+    if (!startLadderTraversal("up")) {
+      climbing = false;
+      return;
+    }
     triggerBabyAction("climbStart");
-    message("Subiu na escada. Agora pegue o cereal!");
+    message("Subindo a escada...");
     updatePrompt();
     return;
   }
@@ -1196,9 +1532,19 @@ function movePlayer(dt) {
   const cosYaw = Math.cos(cameraYaw);
   const dx = localX * cosYaw - localForward * sinYaw;
   const dz = -localX * sinYaw - localForward * cosYaw;
-  const baseSpeed = ladderCarried ? LADDER_SPEED : MOVE_SPEED;
-  const minimumSpeed = ladderCarried ? LADDER_SPEED * 0.7 : MOVE_SPEED * 0.28;
-  const speed = minimumSpeed + (baseSpeed - minimumSpeed) * moveIntensity;
+  let speed;
+  if (ladderCarried) {
+    // Keep the existing speed while carrying the ladder.
+    const minimumCarrySpeed = LADDER_SPEED * 0.7;
+    speed = minimumCarrySpeed + (LADDER_SPEED - minimumCarrySpeed) * moveIntensity;
+  } else if (moveIntensity >= 0.84) {
+    // Full-tilt running keeps its previously approved speed.
+    speed = MOVE_SPEED;
+  } else {
+    // Walking is intentionally much slower to match the baby's walk cycle.
+    const walkProgress = THREE.MathUtils.clamp(moveIntensity / 0.84, 0, 1);
+    speed = 0.45 + (0.95 - 0.45) * Math.pow(walkProgress, 1.15);
+  }
   const nx = player.position.x + dx * speed * dt;
   const nz = player.position.z + dz * speed * dt;
   if (canStand(nx, player.position.z)) player.position.x = nx;
@@ -1280,9 +1626,11 @@ function updateBabyAnimation(dt, moved) {
   const blend = rig.walkBlend;
   const climbBlend = climbing && state === "PLAYING" ? 1 : 0;
   const baseStrideRate = ladderCarried ? 7.1 : 9.4;
-  const strideRate = isWalking
-    ? baseStrideRate * (0.62 + 0.58 * moveIntensity)
-    : baseStrideRate * 0.72;
+  const strideRate = !isWalking
+    ? baseStrideRate * 0.72
+    : moveIntensity >= 0.84
+      ? baseStrideRate * (0.62 + 0.58 * moveIntensity)
+      : baseStrideRate * (0.40 + 0.38 * moveIntensity);
   const phase = rig.clock * strideRate;
   const step = Math.sin(phase);
   const climbPhase = rig.clock * 8.0;
@@ -1560,6 +1908,88 @@ function showLoadError(error) {
   uiButton.textContent = "AGUARDANDO CORREÇÃO";
   uiButton.disabled = true;
 }
+function loadPortableLadderAsset() {
+  return new Promise((resolve) => {
+    if (!portableLadder) {
+      resolve(false);
+      return;
+    }
+
+    const url = new URL("../assets/models/babymarket-ladder.glb?v=1", import.meta.url).href;
+    new GLTFLoader().load(
+      url,
+      (gltf) => {
+        try {
+          const visual = gltf.scene;
+          visual.name = "PortableLadder_Asset_GLTF";
+          visual.position.set(0, 0, 0);
+          visual.updateMatrixWorld(true);
+
+          const rawBounds = new THREE.Box3().setFromObject(visual);
+          const rawSize = rawBounds.getSize(new THREE.Vector3());
+          if (
+            rawSize.y < 1.2 || rawSize.y > 1.8 ||
+            rawSize.x < 0.35 || rawSize.z < 0.35
+          ) {
+            throw new Error("As dimensões do GLB da escada estão fora do esperado.");
+          }
+
+          // O GLB tem os degraus no eixo Z local (base em +Z, plataforma em -Z).
+          // O quarto de volta alinha a subida ao eixo X do cenário; as escalas mantêm
+          // o volume final dentro de 0,70 m de profundidade × 1,50 m de altura × 0,90 m de largura.
+          visual.rotation.set(0, Math.PI / 2, 0);
+          visual.scale.set(0.90 / rawSize.x, 1.50 / rawSize.y, 0.70 / rawSize.z);
+
+          visual.traverse((object) => {
+            if (object.isMesh) {
+              object.castShadow = true;
+              object.receiveShadow = true;
+              object.frustumCulled = true;
+            }
+          });
+
+          // Analyze the candidate before removing the working ladder fallback.
+          const candidateRoot = new THREE.Group();
+          candidateRoot.add(visual);
+          candidateRoot.updateMatrixWorld(true);
+          const treadSurfaces = detectLadderTreadSurfaces(candidateRoot);
+          candidateRoot.remove(visual);
+          if (treadSurfaces.length < 4) {
+            throw new Error("Não foi possível identificar as superfícies dos degraus na malha.");
+          }
+
+          // Preserve the existing interaction root and replace only its visual children.
+          portableLadder.clear();
+          portableLadder.add(visual);
+          portableLadder.userData.usesGLTFAsset = true;
+          portableLadder.userData.treadSurfacesLocal = treadSurfaces;
+          portableLadder.updateMatrixWorld(true);
+
+          console.info(
+            "[BabyMarket] Superfícies dos degraus identificadas: " +
+            treadSurfaces.length + "."
+          );
+
+          console.info(
+            "[BabyMarket] Escada GLB carregada e orientada; dimensões base: " +
+            rawSize.x.toFixed(2) + " × " + rawSize.y.toFixed(2) + " × " +
+            rawSize.z.toFixed(2) + " m."
+          );
+          resolve(true);
+        } catch (error) {
+          console.warn("[BabyMarket] Não foi possível preparar a escada GLB; usando a escada provisória.", error);
+          resolve(false);
+        }
+      },
+      undefined,
+      (error) => {
+        console.info("[BabyMarket] Escada GLB não encontrada; usando a escada provisória.", error);
+        resolve(false);
+      }
+    );
+  });
+}
+
 function loadScenario() {
   const url = new URL("../BabyMarket_Cenario_v1.glb?v=1", import.meta.url).href;
   new GLTFLoader().load(
@@ -1633,7 +2063,8 @@ function loadScenario() {
             collected: false,
           },
         ];
-        // Enquanto o modelo é carregado, deixamos o personagem provisório oculto.
+        // O fallback visual fica disponível caso o novo GLB não carregue.
+        const ladderAssetReady = loadPortableLadderAsset();
         const fallbackPlayer = createBaby();
         fallbackPlayer.visible = false;
         fallbackPlayer.position.copy(startPosition);
@@ -1641,29 +2072,34 @@ function loadScenario() {
         scene.add(fallbackPlayer);
 
         function finishScenarioReady(usingFallback) {
-          camera.position.set(0, 5.5, 13);
-          camera.lookAt(0, 0.7, 0);
-          updateList();
-          state = "MENU";
-          uiTitle.textContent = "BABYMARKET";
-          uiSubtitle.textContent = usingFallback
-            ? "O cenário está pronto, mas o modelo 3D não carregou. Vamos usar o personagem provisório por enquanto."
-            : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.";
-          uiSummary.textContent = "";
-          uiSummary.style.display = "none";
-          updateStatsPanel();
-          statsPanel.style.display = "grid";
-          statsCaption.style.display = "block";
-          uiButton.textContent = "INICIAR JOGO";
-          uiButton.disabled = false;
-          uiButton.style.display = "inline-block";
-          loadError.style.display = "none";
-          uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
-          console.info(
-            "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
-            " colisores; " + items.length + " itens de teste; personagem " +
-            (usingFallback ? "provisório." : "GLB ativo.")
-          );
+          ladderAssetReady.then((usingCustomLadder) => {
+            camera.position.set(0, 5.5, 13);
+            camera.lookAt(0, 0.7, 0);
+            updateList();
+            state = "MENU";
+            uiTitle.textContent = "BABYMARKET";
+            uiSubtitle.textContent = usingFallback
+              ? "O cenário está pronto, mas o bebê 3D não carregou. Vamos usar o personagem provisório."
+              : (!usingCustomLadder
+                ? "O bebê 3D carregou, mas a escada otimizada não foi encontrada. Usando a escada provisória."
+                : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.");
+            uiSummary.textContent = "";
+            uiSummary.style.display = "none";
+            updateStatsPanel();
+            statsPanel.style.display = "grid";
+            statsCaption.style.display = "block";
+            uiButton.textContent = "INICIAR JOGO";
+            uiButton.disabled = false;
+            uiButton.style.display = "inline-block";
+            loadError.style.display = "none";
+            uiScreen.classList.remove("bm-result", "bm-win", "bm-gameover");
+            console.info(
+              "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
+              " colisores; " + items.length + " itens de teste; personagem " +
+              (usingFallback ? "provisório." : "GLB ativo.") + "; escada " +
+              (usingCustomLadder ? "GLB otimizada." : "provisória.")
+            );
+          });
         }
 
         state = "LOADING_CHARACTER";
@@ -1713,10 +2149,11 @@ function animate(now) {
   const beforeX = player ? player.position.x : 0;
   const beforeZ = player ? player.position.z : 0;
   movePlayer(dt);
+  const climbTraversalFinished = updateClimbTraversal(dt);
   const actuallyMoved = !!player &&
     Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
   if (state !== "PAUSED") {
-    updateBabyAnimation(dt, actuallyMoved);
+    updateBabyAnimation(dt, actuallyMoved && !climbTraversalFinished);
     updateCollectEffects(dt);
   }
   if (activeInteractionHighlight) activeInteractionHighlight.update();
