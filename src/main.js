@@ -89,8 +89,11 @@ css.textContent = `
   #joystick-base { position:relative; width:112px; height:112px; border:2px solid rgba(255,255,255,.58); border-radius:50%; background:radial-gradient(circle, rgba(148,163,184,.42), rgba(15,23,42,.76)); box-shadow:0 4px 18px #0005, inset 0 0 0 7px #ffffff0d; touch-action:none; }
   #joystick-knob { position:absolute; left:50%; top:50%; width:44px; height:44px; transform:translate(-50%,-50%); border:2px solid #fff; border-radius:50%; background:linear-gradient(145deg,#e2e8f0,#64748b); box-shadow:0 3px 10px #0007; pointer-events:none; }
   #joystick-label { color:#fff; font-size:10px; font-weight:900; letter-spacing:.08em; text-shadow:0 2px 5px #000; pointer-events:none; }
-  #interact-btn { position:fixed; right:max(12px, env(safe-area-inset-right)); bottom:max(12px, env(safe-area-inset-bottom)); z-index:28; pointer-events:auto; min-width:min(118px, calc(50vw - 24px)); max-width:calc(50vw - 24px); min-height:51px; padding:9px 12px; background:linear-gradient(#fbbf24,#f59e0b); color:#422006; border-color:#fde68a; font-size:12px; }
+  #interact-btn { position:fixed; right:max(12px, env(safe-area-inset-right)); bottom:max(12px, env(safe-area-inset-bottom)); z-index:28; pointer-events:auto; width:min(118px, calc(50vw - 24px)); min-width:0; max-width:calc(50vw - 24px); min-height:51px; padding:9px 8px; background:linear-gradient(#fbbf24,#f59e0b); color:#422006; border-color:#fde68a; font-size:12px; line-height:1.15; white-space:normal; }
   #interact-btn:disabled { display:none; }
+  #jump-btn { position:fixed; right:calc(max(12px, env(safe-area-inset-right)) + 126px); bottom:max(12px, env(safe-area-inset-bottom)); z-index:28; pointer-events:auto; width:76px; min-height:51px; padding:8px 6px; color:#082f49; background:linear-gradient(#bae6fd,#38bdf8); border:1px solid #e0f2fe; border-radius:12px; font-size:12px; font-weight:950; box-shadow:0 4px 0 #0369a1, 0 8px 18px #0004; cursor:pointer; touch-action:manipulation; }
+  #jump-btn:active:not(:disabled) { transform:translateY(2px); box-shadow:0 2px 0 #0369a1, 0 4px 12px #0003; }
+  #jump-btn:disabled { opacity:.55; filter:saturate(.55); }
   #controls-help { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); font-size:11px; background:#0f172abf; padding:7px 10px; border-radius:8px; white-space:nowrap; }
   #fullscreen-btn, #camera-reset-btn { color:white; background:rgba(15,23,42,.91); padding:10px 12px; min-height:43px; white-space:nowrap; }
   #interact-btn { pointer-events:auto; }
@@ -108,7 +111,8 @@ css.textContent = `
     #joystick-base { width:94px; height:94px; }
     #joystick-knob { width:38px; height:38px; }
     #joystick-label { font-size:9px; }
-    #interact-btn { min-width:104px; min-height:42px; padding:6px 9px; }
+    #interact-btn { min-height:42px; padding:6px 7px; }
+    #jump-btn { right:calc(max(7px, env(safe-area-inset-right)) + 126px); bottom:max(5px, env(safe-area-inset-bottom)); width:68px; min-height:42px; padding:6px 5px; font-size:11px; }
     #fullscreen-btn, #camera-reset-btn { min-height:34px; padding:7px 8px; font-size:11px; border-radius:8px; }
     #interaction-message { bottom:calc(88px + env(safe-area-inset-bottom)); font-size:11px; padding:6px 9px; }
     #controls-help { display:none; }
@@ -206,9 +210,10 @@ hud.innerHTML = `
       <div id="joystick-base"><div id="joystick-knob"></div></div>
       <span id="joystick-label">MOVER</span>
     </div>
+    <button id="jump-btn" type="button" aria-label="Pular" disabled>⬆ PULAR</button>
     <button id="interact-btn" disabled>INTERAGIR</button>
   </div>
-  <div id="controls-help">Mover: WASD / setas · Interagir: E ou Espaço</div>
+  <div id="controls-help">Mover: WASD / setas · Pular: Espaço · Interagir: E</div>
 `;
 document.body.appendChild(hud);
 const rotateNotice = document.createElement("div");
@@ -241,6 +246,7 @@ const listCount = hud.querySelector("#list-count");
 const listHelp = hud.querySelector("#list-help");
 const interactionMessage = hud.querySelector("#interaction-message");
 const interactButton = hud.querySelector("#interact-btn");
+const jumpButton = hud.querySelector("#jump-btn");
 const fullscreenButton = hud.querySelector("#fullscreen-btn");
 const pauseButton = hud.querySelector("#pause-btn");
 const resumeButton = pauseOverlay.querySelector("#resume-btn");
@@ -292,6 +298,10 @@ const LADDER_SPEED = 2.45;
 const ITEM_REACH = 1.42;
 const HIGH_REACH = 1.48;
 const input = { up: false, down: false, left: false, right: false, analogX: 0, analogY: 0 };
+let jumpActive = false;
+let jumpVelocity = 0;
+const JUMP_IMPULSE = 3.5;
+const JUMP_GRAVITY = 10.5;
 const targetCam = new THREE.Vector3();
 const targetLook = new THREE.Vector3();
 const CAMERA_DISTANCE = 3.25;
@@ -748,6 +758,8 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
     desired = "celebrate";
   } else if (rig.actionType === "disappointed" && rig.actions.disappointed) {
     desired = "disappointed";
+  } else if (jumpActive && rig.actions.jump) {
+    desired = "jump";
   } else if (activelyTraversingLadder && rig.actions.climb) {
     desired = "climb";
     playbackDirection = climbTraversal.direction === "down" ? -1 : 1;
@@ -869,6 +881,11 @@ function recordMenuText() {
 }
 
 function finish(won) {
+  if (jumpActive) {
+    jumpActive = false;
+    jumpVelocity = 0;
+    if (player && !climbing) player.position.y = 0;
+  }
   document.body.classList.remove("bm-require-landscape");
   pauseOverlay.style.display = "none";
   pauseButton.style.display = "none";
@@ -955,6 +972,13 @@ function updatePrompt() {
   if (state !== "PLAYING" || !player || !portableLadder) {
     hideAction();
     setInteractionHighlight(null);
+    return;
+  }
+
+  if (jumpActive) {
+    hideAction();
+    setInteractionHighlight(null);
+    message("Pulando...");
     return;
   }
 
@@ -1337,7 +1361,7 @@ function updateClimbTraversal(dt) {
 }
 
 function interact() {
-  if (state !== "PLAYING" || !player || !portableLadder) return;
+  if (state !== "PLAYING" || !player || !portableLadder || jumpActive) return;
   if (climbing) {
     if (climbTraversal) return;
     const cereal = items.find((i) => i.name === "Item_Cereal" && !i.collected);
@@ -1425,6 +1449,8 @@ async function startGame() {
   const session = ++countdownId;
   resetLadder();
   resetItems();
+  jumpActive = false;
+  jumpVelocity = 0;
   player.position.copy(startPosition);
   player.position.y = 0;
   player.rotation.set(0, 0, 0);
@@ -1463,6 +1489,7 @@ async function startGame() {
   state = "PLAYING";
   lastFrame = performance.now();
   updatePauseButtonVisibility();
+  updateJumpButtonState();
   updatePrompt();
   updateCamera(1);
 }
@@ -1560,6 +1587,96 @@ function movePlayer(dt) {
       : Math.atan2(-dx, -dz);
   }
 }
+function updateJumpButtonState() {
+  if (!jumpButton) return;
+  jumpButton.disabled = !(
+    state === "PLAYING" &&
+    !!player &&
+    !climbing &&
+    !ladderCarried &&
+    !jumpActive
+  );
+}
+
+function startJump() {
+  if (
+    state !== "PLAYING" ||
+    !player ||
+    climbing ||
+    climbTraversal ||
+    ladderCarried ||
+    jumpActive ||
+    player.position.y > 0.03
+  ) return false;
+
+  jumpActive = true;
+  jumpVelocity = JUMP_IMPULSE;
+  triggerBabyAction("jump");
+  updateJumpButtonState();
+  return true;
+}
+
+function updateJump(dt) {
+  if (state !== "PLAYING" || !player || !jumpActive) return;
+
+  const nextVelocity = jumpVelocity - JUMP_GRAVITY * dt;
+  const nextY = player.position.y + nextVelocity * dt;
+
+  // Verifica somente obstáculos acima da altura normal do personagem.
+  // Isso evita que as caixas de colisão laterais cancelem o salto quando o bebê
+  // está andando/correndo junto a uma prateleira ou outro objeto.
+  if (nextY > player.position.y) {
+    const currentTop = player.position.y + PLAYER_HEIGHT;
+    const nextTop = nextY + PLAYER_HEIGHT;
+    const upwardClearance = new THREE.Box3(
+      new THREE.Vector3(
+        player.position.x - HALF_X,
+        currentTop - 0.005,
+        player.position.z - HALF_Z
+      ),
+      new THREE.Vector3(
+        player.position.x + HALF_X,
+        nextTop + 0.005,
+        player.position.z + HALF_Z
+      )
+    );
+    const blocksHeadroom = (box) => {
+      // Collisores que já sobem pela altura normal do corpo são tratados pelo
+      // movimento horizontal (canStand); aqui só contam obstáculos suspensos.
+      if (box.max.y <= currentTop + 0.001) return false;
+      if (box.min.y < currentTop - 0.02) return false;
+      return upwardClearance.intersectsBox(box);
+    };
+    const ladderBox = ladderPlaced && portableLadder && !climbing
+      ? new THREE.Box3().setFromObject(portableLadder)
+      : null;
+    const headBlocked =
+      colliderBoxes.some(({ box }) => blocksHeadroom(box)) ||
+      (!!ladderBox && blocksHeadroom(ladderBox));
+    if (headBlocked) {
+      jumpVelocity = 0;
+      return;
+    }
+  }
+
+  jumpVelocity = nextVelocity;
+  if (nextY <= 0) {
+    player.position.y = 0;
+    jumpVelocity = 0;
+    jumpActive = false;
+    const rig = player.userData.babyRig;
+    if (rig?.actionType === "jump") {
+      rig.actionType = "";
+      rig.actionTime = 0;
+      rig.actionDuration = 0;
+    }
+    updateJumpButtonState();
+    return;
+  }
+
+  player.position.y = nextY;
+}
+
 function triggerBabyAction(type) {
   if (!player) return;
   const rig = player.userData.babyRig;
@@ -1757,9 +1874,13 @@ function setupControls() {
       input[keyMap[e.code]] = true;
       e.preventDefault();
     }
-    if ((e.code === "KeyE" || e.code === "Space") && !e.repeat) {
+    if (e.code === "KeyE" && !e.repeat) {
       e.preventDefault();
       interact();
+    }
+    if (e.code === "Space" && !e.repeat) {
+      e.preventDefault();
+      startJump();
     }
     if (e.code === "KeyC") {
       cameraYaw = 0;
@@ -1872,6 +1993,19 @@ function setupControls() {
   renderer.domElement.addEventListener("lostpointercapture", endCameraDrag);
 
   interactButton.addEventListener("click", (e) => { e.preventDefault(); interact(); });
+  // Dispara no pointerdown para funcionar também com um dedo segurando o
+  // analógico e outro tocando PULAR; não depende da síntese posterior de click.
+  jumpButton.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startJump();
+  });
+  // Mantém acessibilidade por teclado/leitor de tela, sem duplicar o toque.
+  jumpButton.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (e.detail === 0) startJump();
+  });
   listToggle.addEventListener("click", () => listPanel.classList.toggle("open"));
   cameraResetButton.addEventListener("click", (e) => {
     e.preventDefault();
@@ -2148,6 +2282,9 @@ function animate(now) {
   lastFrame = now;
   const beforeX = player ? player.position.x : 0;
   const beforeZ = player ? player.position.z : 0;
+  // Atualiza primeiro o eixo vertical; assim, o primeiro quadro do salto
+  // não é deslocado pelo analógico antes da verificação de espaço livre.
+  updateJump(dt);
   movePlayer(dt);
   const climbTraversalFinished = updateClimbTraversal(dt);
   const actuallyMoved = !!player &&
@@ -2159,6 +2296,7 @@ function animate(now) {
   if (activeInteractionHighlight) activeInteractionHighlight.update();
   updateTimer(dt);
   if (state === "PLAYING") updatePrompt();
+  updateJumpButtonState();
   if (
     player &&
     (state === "PLAYING" ||
