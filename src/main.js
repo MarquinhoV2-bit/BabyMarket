@@ -471,7 +471,7 @@ function addCartAxialCylinder(parent,radius,depth,x,y,z,material,segments=20){
  const mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,depth,segments),material);
  mesh.rotation.z=Math.PI/2;mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;
 }
-function createShoppingCart(){
+function createProceduralShoppingCart(){
  const root=new THREE.Group();root.name="BabyMarket_ShoppingCart";root.userData.isShoppingCart=true;
  const silver=new THREE.MeshStandardMaterial({color:0x9aa6b7,metalness:0.72,roughness:0.3});
  const brightSilver=new THREE.MeshStandardMaterial({color:0xd7e0eb,metalness:0.65,roughness:0.27});
@@ -535,15 +535,77 @@ function createShoppingCart(){
  root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
  scene.add(root);shoppingCart=root;resetShoppingCart();return root;
 }
+async function loadShoppingCartAsset() {
+  try {
+    const urls = Array.from({ length: 16 }, (_, i) =>
+      new URL("../assets/models/cart-payload/cart-payload-" +
+        String(i + 1).padStart(2, "0") + ".txt", import.meta.url).href
+    );
+    const chunks = await Promise.all(urls.map(async (url) => {
+      const response = await fetch(url, { cache: "force-cache" });
+      if (!response.ok) throw new Error("Falha ao carregar parte do modelo: " + response.status);
+      return response.text();
+    }));
+    const payload = chunks.join("").trim();
+    if (!payload) throw new Error("Payload do carrinho vazio.");
+    const compressed = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
+    if (typeof DecompressionStream === "undefined")
+      throw new Error("Este navegador não suporta descompactação gzip para o GLB.");
+    const glbStream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
+    const glbBuffer = await new Response(glbStream).arrayBuffer();
+
+    return await new Promise((resolve, reject) => {
+      new GLTFLoader().parse(glbBuffer, "", (gltf) => {
+        try {
+          const model = gltf.scene;
+          model.name = "CartRoot_OriginalTripo";
+          const requiredWheelNames = ["tripo_part_1", "tripo_part_4", "tripo_part_5", "tripo_part_6"];
+          const wheelNodes = requiredWheelNames.map((name) => model.getObjectByName(name));
+          if (wheelNodes.some((node) => !node))
+            throw new Error("O GLB não contém as quatro peças de roda esperadas.");
+
+          // O asset original mantém pneu e suporte juntos; não giramos a malha inteira.
+          const root = new THREE.Group();
+          root.name = "BabyMarket_ShoppingCart";
+          root.userData.isShoppingCart = true;
+          root.userData.source = "Tripo original";
+          root.userData.wheelNodeNames = requiredWheelNames.slice();
+          root.scale.setScalar(0.9);
+          root.add(model);
+          root.traverse((object) => {
+            if (object.isMesh) {
+              object.castShadow = true;
+              object.receiveShadow = true;
+              object.frustumCulled = true;
+            }
+          });
+          cartWheelPivots.length = 0;
+          scene.add(root);
+          shoppingCart = root;
+          resetShoppingCart();
+          console.info("[BabyMarket] Carrinho original da Tripo carregado; 4 peças de roda identificadas.");
+          resolve(true);
+        } catch (error) {
+          reject(error);
+        }
+      }, reject);
+    });
+  } catch (error) {
+    console.error("[BabyMarket] Não foi possível carregar o carrinho original da Tripo; usando fallback.", error);
+    createProceduralShoppingCart();
+    return false;
+  }
+}
+
 function resetShoppingCart(){
  if(!shoppingCart)return;
  cartPushing=false;cartYaw=Math.PI;shoppingCart.rotation.set(0,cartYaw,0);
- shoppingCart.position.set(startPosition.x,0,startPosition.z-.88);shoppingCart.visible=true;
+ shoppingCart.position.set(startPosition.x,0,startPosition.z-.78);shoppingCart.visible=true;
  cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
 }
 function cartCanStandForPlayer(x,z,yaw){
  if(!shoppingCart||!colliderBoxes.length)return true;
- const hx=.34,hz=.43,ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz,ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
+ const hx=.37,hz=.46,ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz,ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
  const cx=x+Math.sin(yaw)*.78,cz=z+Math.cos(yaw)*.78;
  const box=new THREE.Box3(new THREE.Vector3(cx-ex,.015,cz-ez),new THREE.Vector3(cx+ex,.91,cz+ez));
  return !colliderBoxes.some(entry=>box.intersectsBox(entry.box));
@@ -2339,7 +2401,7 @@ function loadScenario() {
         ];
         // O fallback visual fica disponível caso o novo GLB não carregue.
         const ladderAssetReady = loadPortableLadderAsset();
-        createShoppingCart();
+        const cartAssetReady = loadShoppingCartAsset();
         const fallbackPlayer = createBaby();
         fallbackPlayer.visible = false;
         fallbackPlayer.position.copy(startPosition);
@@ -2347,7 +2409,7 @@ function loadScenario() {
         scene.add(fallbackPlayer);
 
         function finishScenarioReady(usingFallback) {
-          ladderAssetReady.then((usingCustomLadder) => {
+          Promise.all([ladderAssetReady, cartAssetReady]).then(([usingCustomLadder, usingOriginalCart]) => {
             camera.position.set(0, 5.5, 13);
             camera.lookAt(0, 0.7, 0);
             updateList();
@@ -2357,7 +2419,9 @@ function loadScenario() {
               ? "O cenário está pronto, mas o bebê 3D não carregou. Vamos usar o personagem provisório."
               : (!usingCustomLadder
                 ? "O bebê 3D carregou, mas a escada otimizada não foi encontrada. Usando a escada provisória."
-                : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.");
+                : (!usingOriginalCart
+                  ? "Cenário pronto. O carrinho original não carregou; usando a versão provisória."
+                  : "O mini supermercado está pronto. Experimente o carrinho original e encontre os 3 produtos."));
             uiSummary.textContent = "";
             uiSummary.style.display = "none";
             updateStatsPanel();
@@ -2372,7 +2436,8 @@ function loadScenario() {
               "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
               " colisores; " + items.length + " itens de teste; personagem " +
               (usingFallback ? "provisório." : "GLB ativo.") + "; escada " +
-              (usingCustomLadder ? "GLB otimizada." : "provisória.")
+              (usingCustomLadder ? "GLB otimizada." : "provisória.") + "; carrinho " +
+              (usingOriginalCart ? "Tripo original." : "provisório.")
             );
           });
         }
