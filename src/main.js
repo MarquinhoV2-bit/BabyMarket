@@ -765,7 +765,7 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   switchBabyClip(rig, desired, playbackDirection);
   if (rig.currentAction && rig.playbackDirection > 0) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
-    if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.72 + intensity * 0.38);
+    if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.58 + intensity * 0.22);
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
   rig.mixer.update(dt);
@@ -1189,6 +1189,49 @@ function ladderClimbWaypoints() {
   return path ? path.points : [];
 }
 
+function faceLadderAlongAscent(ascentDirection) {
+  if (!player || !ascentDirection) return;
+  const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
+  // Fica voltado para cima da escada tanto na subida quanto na descida de costas.
+  player.rotation.y = usesGLTFCharacter
+    ? Math.atan2(ascentDirection.x, ascentDirection.z)
+    : Math.atan2(-ascentDirection.x, -ascentDirection.z);
+}
+
+function placePlayerSafelyBesideLadder() {
+  if (!player || !portableLadder) return;
+  const path = getLadderClimbPath();
+  if (path?.entry) {
+    player.position.copy(path.entry);
+    player.position.y = 0;
+    faceLadderAlongAscent(path.ascentDirection);
+    return;
+  }
+
+  // Fallback geometrically derived from the ladder bounding box.
+  portableLadder.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3().setFromObject(portableLadder);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const direction = new THREE.Vector3(
+    player.position.x - center.x, 0, player.position.z - center.z
+  );
+  if (direction.lengthSq() < 0.0001) direction.set(0, 0, 1);
+  direction.normalize();
+  const size = bounds.getSize(new THREE.Vector3());
+  const ladderRadius =
+    Math.abs(direction.x) * size.x * 0.5 +
+    Math.abs(direction.z) * size.z * 0.5;
+  const playerRadius =
+    Math.abs(direction.x) * HALF_X +
+    Math.abs(direction.z) * HALF_Z;
+  player.position.set(
+    center.x + direction.x * (ladderRadius + playerRadius + 0.12),
+    0,
+    center.z + direction.z * (ladderRadius + playerRadius + 0.12)
+  );
+  faceLadderAlongAscent(direction.clone().negate());
+}
+
 function startLadderTraversal(direction) {
   if (!player || climbTraversal) return false;
   const path = getLadderClimbPath();
@@ -1202,10 +1245,7 @@ function startLadderTraversal(direction) {
 
   // The actual tread centers determine the world climb direction.
   const facing = path.ascentDirection;
-  const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
-  player.rotation.y = usesGLTFCharacter
-    ? Math.atan2(facing.x, facing.z)
-    : Math.atan2(-facing.x, -facing.z);
+  faceLadderAlongAscent(facing);
 
   player.position.copy(points[0]);
   const distance = points.reduce((total, point, index) => {
@@ -1213,12 +1253,23 @@ function startLadderTraversal(direction) {
     return total + point.distanceTo(points[index - 1]);
   }, 0);
 
+  const segmentLengths = points.slice(1).map((point, index) =>
+    point.distanceTo(points[index])
+  );
+  const cumulativeLengths = [0];
+  for (const length of segmentLengths) {
+    cumulativeLengths.push(cumulativeLengths[cumulativeLengths.length - 1] + length);
+  }
+
   climbTraversal = {
     direction,
     points,
+    segmentLengths,
+    cumulativeLengths,
+    totalDistance: distance,
     ascentDirection: path.ascentDirection.clone(),
     elapsed: 0,
-    duration: THREE.MathUtils.clamp(distance / 0.88, 2.0, 2.8),
+    duration: THREE.MathUtils.clamp(distance / 0.80, 2.2, 3.0),
   };
   return true;
 }
@@ -1231,15 +1282,27 @@ function updateClimbTraversal(dt) {
   const progress = THREE.MathUtils.clamp(
     traversal.elapsed / traversal.duration, 0, 1
   );
-  const segmentCount = traversal.points.length - 1;
-  const segmentPosition = progress * segmentCount;
-  const segmentIndex = Math.min(Math.floor(segmentPosition), segmentCount - 1);
-  const segmentProgress = progress >= 1 ? 1 : segmentPosition - segmentIndex;
+  const totalDistance = traversal.totalDistance || 1;
+  const distanceAlong = progress * totalDistance;
+  let segmentIndex = traversal.segmentLengths.length - 1;
+  for (let i = 0; i < traversal.segmentLengths.length; i++) {
+    if (distanceAlong <= traversal.cumulativeLengths[i + 1]) {
+      segmentIndex = i;
+      break;
+    }
+  }
+  const segmentStart = traversal.cumulativeLengths[segmentIndex];
+  const segmentLength = Math.max(traversal.segmentLengths[segmentIndex], 0.0001);
+  const localT = progress >= 1
+    ? 1
+    : THREE.MathUtils.clamp((distanceAlong - segmentStart) / segmentLength, 0, 1);
+  // Ease on/off at each footfall: less mechanical, more natural movement between treads.
+  const easedT = localT * localT * (3 - 2 * localT);
 
   player.position.lerpVectors(
     traversal.points[segmentIndex],
     traversal.points[segmentIndex + 1],
-    segmentProgress
+    easedT
   );
 
   if (progress >= 1) {
@@ -1257,11 +1320,7 @@ function updateClimbTraversal(dt) {
       Object.keys(input).forEach((key) => { input[key] = false; });
       resetJoystick();
 
-      const facing = traversal.ascentDirection;
-      const usesGLTFCharacter = player.userData.babyRig?.isGLTF === true;
-      player.rotation.y = usesGLTFCharacter
-        ? Math.atan2(-facing.x, -facing.z)
-        : Math.atan2(facing.x, facing.z);
+      faceLadderAlongAscent(traversal.ascentDirection);
       triggerBabyAction("");
       message("Você desceu da escada e já pode se movimentar.");
     } else {
@@ -1304,6 +1363,11 @@ function interact() {
       portableLadder.scale.set(1, 1, 1);
       ladderCarried = false;
       ladderPlaced = true;
+      climbTraversal = null;
+      // A escada foi colocada sob/ao lado do jogador em algumas posições.
+      // Saia para um ponto livre calculado pelo volume real da escada antes de
+      // reativar a colisão, para não prender o personagem no lugar.
+      placePlayerSafelyBesideLadder();
       triggerBabyAction("ladderPlace");
       message("Escada posicionada! Aproxime-se para subir.");
     } else {
@@ -1468,9 +1532,19 @@ function movePlayer(dt) {
   const cosYaw = Math.cos(cameraYaw);
   const dx = localX * cosYaw - localForward * sinYaw;
   const dz = -localX * sinYaw - localForward * cosYaw;
-  const baseSpeed = ladderCarried ? LADDER_SPEED : MOVE_SPEED;
-  const minimumSpeed = ladderCarried ? LADDER_SPEED * 0.7 : MOVE_SPEED * 0.28;
-  const speed = minimumSpeed + (baseSpeed - minimumSpeed) * moveIntensity;
+  let speed;
+  if (ladderCarried) {
+    // Keep the existing speed while carrying the ladder.
+    const minimumCarrySpeed = LADDER_SPEED * 0.7;
+    speed = minimumCarrySpeed + (LADDER_SPEED - minimumCarrySpeed) * moveIntensity;
+  } else if (moveIntensity >= 0.84) {
+    // Full-tilt running keeps its previously approved speed.
+    speed = MOVE_SPEED;
+  } else {
+    // Walking is intentionally much slower to match the baby's walk cycle.
+    const walkProgress = THREE.MathUtils.clamp(moveIntensity / 0.84, 0, 1);
+    speed = 0.45 + (0.95 - 0.45) * Math.pow(walkProgress, 1.15);
+  }
   const nx = player.position.x + dx * speed * dt;
   const nz = player.position.z + dz * speed * dt;
   if (canStand(nx, player.position.z)) player.position.x = nx;
@@ -1552,9 +1626,11 @@ function updateBabyAnimation(dt, moved) {
   const blend = rig.walkBlend;
   const climbBlend = climbing && state === "PLAYING" ? 1 : 0;
   const baseStrideRate = ladderCarried ? 7.1 : 9.4;
-  const strideRate = isWalking
-    ? baseStrideRate * (0.62 + 0.58 * moveIntensity)
-    : baseStrideRate * 0.72;
+  const strideRate = !isWalking
+    ? baseStrideRate * 0.72
+    : moveIntensity >= 0.84
+      ? baseStrideRate * (0.62 + 0.58 * moveIntensity)
+      : baseStrideRate * (0.40 + 0.38 * moveIntensity);
   const phase = rig.clock * strideRate;
   const step = Math.sin(phase);
   const climbPhase = rig.clock * 8.0;
