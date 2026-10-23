@@ -496,9 +496,14 @@ function createShoppingCart(){
  }
  for(let i=0;i<9;i++){
   const x=-.225+i*.05625;
-  addCartBar(root,[x,.32,-.34],[x,.72,.34],.0085,silver,7);
+  addCartBar(root,[x,.32,-.34],[x,.72,-.39],.0085,silver,7);
+  addCartBar(root,[x,.32,.34],[x,.72,.39],.0085,silver,7);
  }
- for(let i=0;i<9;i++){const z=-.32+i*.08;addCartBar(root,[-.23,.32,z],[.23,.32,z],.0085,silver,7);}
+ for(let i=0;i<9;i++){
+  const z=-.32+i*.08;
+  addCartBar(root,[-.23,.32,z],[-.285,.72,z],.0085,silver,7);
+  addCartBar(root,[.23,.32,z],[.285,.72,z],.0085,silver,7);
+ }
  for(const y of [.43,.57])for(let i=0;i<8;i++){const x=-.22+i*.063;addCartBar(root,[x,y,-.36],[x,y,.36],.008,silver,7);}
  const bumperGeo=new THREE.BoxGeometry(.105,.105,.105);
  for(const x of [-.29,.29])for(const z of [-.39,.39]){
