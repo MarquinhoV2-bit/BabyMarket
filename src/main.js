@@ -535,27 +535,12 @@ function createProceduralShoppingCart(){
  root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
  scene.add(root);shoppingCart=root;resetShoppingCart();return root;
 }
-async function loadShoppingCartAsset() {
-  try {
-    const urls = Array.from({ length: 16 }, (_, i) =>
-      new URL("../assets/models/cart-payload/cart-payload-" +
-        String(i + 1).padStart(2, "0") + ".txt", import.meta.url).href
-    );
-    const chunks = await Promise.all(urls.map(async (url) => {
-      const response = await fetch(url, { cache: "force-cache" });
-      if (!response.ok) throw new Error("Falha ao carregar parte do modelo: " + response.status);
-      return response.text();
-    }));
-    const payload = chunks.join("").trim();
-    if (!payload) throw new Error("Payload do carrinho vazio.");
-    const compressed = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0));
-    if (typeof DecompressionStream === "undefined")
-      throw new Error("Este navegador não suporta descompactação gzip para o GLB.");
-    const glbStream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"));
-    const glbBuffer = await new Response(glbStream).arrayBuffer();
-
-    return await new Promise((resolve, reject) => {
-      new GLTFLoader().parse(glbBuffer, "", (gltf) => {
+function loadShoppingCartAsset() {
+  return new Promise((resolve) => {
+    const url = new URL("../assets/models/babymarket-cart.glb?v=1", import.meta.url).href;
+    new GLTFLoader().load(
+      url,
+      (gltf) => {
         try {
           const model = gltf.scene;
           model.name = "CartRoot_OriginalTripo";
@@ -564,7 +549,8 @@ async function loadShoppingCartAsset() {
           if (wheelNodes.some((node) => !node))
             throw new Error("O GLB não contém as quatro peças de roda esperadas.");
 
-          // O asset original mantém pneu e suporte juntos; não giramos a malha inteira.
+          // Mantemos o GLB original e suas peças separadas. Como cada peça de roda
+          // também contém parte do suporte, não giramos a peça inteira para evitar deformação visual.
           const root = new THREE.Group();
           root.name = "BabyMarket_ShoppingCart";
           root.userData.isShoppingCart = true;
@@ -586,15 +572,19 @@ async function loadShoppingCartAsset() {
           console.info("[BabyMarket] Carrinho original da Tripo carregado; 4 peças de roda identificadas.");
           resolve(true);
         } catch (error) {
-          reject(error);
+          console.error("[BabyMarket] Falha ao preparar o carrinho original da Tripo.", error);
+          createProceduralShoppingCart();
+          resolve(false);
         }
-      }, reject);
-    });
-  } catch (error) {
-    console.error("[BabyMarket] Não foi possível carregar o carrinho original da Tripo; usando fallback.", error);
-    createProceduralShoppingCart();
-    return false;
-  }
+      },
+      undefined,
+      (error) => {
+        console.error("[BabyMarket] GLB do carrinho não encontrado; usando fallback provisório.", error);
+        createProceduralShoppingCart();
+        resolve(false);
+      }
+    );
+  });
 }
 
 function resetShoppingCart(){
