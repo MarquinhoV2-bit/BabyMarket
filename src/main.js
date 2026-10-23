@@ -91,7 +91,7 @@ css.textContent = `
   #joystick-label { color:#fff; font-size:10px; font-weight:900; letter-spacing:.08em; text-shadow:0 2px 5px #000; pointer-events:none; }
   #interact-btn { position:fixed; right:max(12px, env(safe-area-inset-right)); bottom:max(12px, env(safe-area-inset-bottom)); z-index:28; pointer-events:auto; width:min(118px, calc(50vw - 24px)); min-width:0; max-width:calc(50vw - 24px); min-height:51px; padding:9px 8px; background:linear-gradient(#fbbf24,#f59e0b); color:#422006; border-color:#fde68a; font-size:12px; line-height:1.15; white-space:normal; }
   #interact-btn:disabled { display:none; }
-  #jump-btn { position:fixed; right:calc(max(12px, env(safe-area-inset-right)) + 126px); bottom:max(12px, env(safe-area-inset-bottom)); z-index:28; width:76px; min-height:51px; padding:8px 6px; color:#082f49; background:linear-gradient(#bae6fd,#38bdf8); border:1px solid #e0f2fe; border-radius:12px; font-size:12px; font-weight:950; box-shadow:0 4px 0 #0369a1, 0 8px 18px #0004; cursor:pointer; touch-action:manipulation; }
+  #jump-btn { position:fixed; right:calc(max(12px, env(safe-area-inset-right)) + 126px); bottom:max(12px, env(safe-area-inset-bottom)); z-index:28; pointer-events:auto; width:76px; min-height:51px; padding:8px 6px; color:#082f49; background:linear-gradient(#bae6fd,#38bdf8); border:1px solid #e0f2fe; border-radius:12px; font-size:12px; font-weight:950; box-shadow:0 4px 0 #0369a1, 0 8px 18px #0004; cursor:pointer; touch-action:manipulation; }
   #jump-btn:active:not(:disabled) { transform:translateY(2px); box-shadow:0 2px 0 #0369a1, 0 4px 12px #0003; }
   #jump-btn:disabled { opacity:.55; filter:saturate(.55); }
   #controls-help { position:absolute; left:50%; bottom:12px; transform:translateX(-50%); font-size:11px; background:#0f172abf; padding:7px 10px; border-radius:8px; white-space:nowrap; }
@@ -1622,13 +1622,28 @@ function updateJump(dt) {
   const nextVelocity = jumpVelocity - JUMP_GRAVITY * dt;
   const nextY = player.position.y + nextVelocity * dt;
 
-  // Para a subida antes que o bebê entre em uma prateleira ou outro colisor.
-  if (
-    nextY > player.position.y &&
-    !canStand(player.position.x, player.position.z, nextY)
-  ) {
-    jumpVelocity = 0;
-    return;
+  // Testa apenas a área da cabeça ao subir. Testar o corpo inteiro com canStand()
+  // também colidia com o piso e podia cancelar o salto antes de ele começar.
+  if (nextY > player.position.y) {
+    const headBox = new THREE.Box3(
+      new THREE.Vector3(
+        player.position.x - HALF_X,
+        nextY + PLAYER_HEIGHT * 0.72,
+        player.position.z - HALF_Z
+      ),
+      new THREE.Vector3(
+        player.position.x + HALF_X,
+        nextY + PLAYER_HEIGHT + 0.04,
+        player.position.z + HALF_Z
+      )
+    );
+    const headBlocked = colliderBoxes.some(({ box }) => headBox.intersectsBox(box)) ||
+      (ladderPlaced && portableLadder && !climbing &&
+        headBox.intersectsBox(new THREE.Box3().setFromObject(portableLadder)));
+    if (headBlocked) {
+      jumpVelocity = 0;
+      return;
+    }
   }
 
   jumpVelocity = nextVelocity;
