@@ -996,20 +996,54 @@ function getCartPushArmChains(visual) {
   visual.traverse((obj) => {
     if (!obj.isBone) return;
     const normalized = obj.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-    bones.push({ bone: obj, name: normalized });
+    bones.push({ bone: obj, name: normalized, rawName: obj.name });
   });
-  const find = (side, kind) => {
-    const suffixes = {
-      upper: [side + "upperarm", side + "arm"],
-      forearm: [side + "forearm", side + "lowerarm"],
-      hand: [side + "hand"]
-    }[kind];
-    return bones.find(({name}) => suffixes.some((suffix) => name.endsWith(suffix)))?.bone || null;
+  const belongsToSide = (name, side) => {
+    const longSide = side === "left" ? "left" : "right";
+    if (name.includes(longSide)) return true;
+    // Também aceita rigs nomeados como Arm_L / Hand.R / forearm_l.
+    return side === "left"
+      ? /(?:arml|handl|forearml|lowerarml|upperarml|shoulderl)$/.test(name)
+      : /(?:armr|handr|forearmr|lowerarmr|upperarmr|shoulderr)$/.test(name);
   };
-  return [-1, 1].map((side) => {
+  const find = (side, kind) => {
+    const candidates = bones.filter(({name}) => belongsToSide(name,side));
+    const matches = {
+      upper: name => /upperarm|arm$/.test(name) && !/forearm|lowerarm|hand/.test(name),
+      forearm: name => /forearm|lowerarm/.test(name),
+      hand: name => /hand/.test(name) && !/handtarget/.test(name)
+    }[kind];
+    return candidates.find(({name}) => matches(name))?.bone || null;
+  };
+  const chains = [-1, 1].map((side) => {
     const token = side < 0 ? "left" : "right";
     return {side, upper:find(token,"upper"), forearm:find(token,"forearm"), hand:find(token,"hand")};
-  }).filter((chain) => chain.upper && chain.forearm && chain.hand);
+  }).filter((chain) => chain.upper);
+  return chains;
+}
+
+function captureCartPushPose() {
+  const rig = player?.userData?.babyRig;
+  if (!rig?.isGLTF || !rig.visual) return;
+  rig.pushArmChains = getCartPushArmChains(rig.visual);
+  rig.pushPoseBase = new Map();
+  for (const chain of rig.pushArmChains) {
+    for (const bone of [chain.upper,chain.forearm,chain.hand]) {
+      if (bone && !rig.pushPoseBase.has(bone)) rig.pushPoseBase.set(bone,bone.quaternion.clone());
+    }
+  }
+  if (!rig.pushArmChains.length) {
+    const names=[];
+    rig.visual.traverse((obj)=>{if(obj.isBone && /arm|hand|shoulder/i.test(obj.name))names.push(obj.name);});
+    console.warn("[BabyMarket] Rig sem nomes de braços reconhecidos; ossos encontrados:",names);
+  }
+}
+
+function restoreCartPushPose() {
+  const rig = player?.userData?.babyRig;
+  if (!rig?.pushPoseBase) return;
+  for (const [bone, quaternion] of rig.pushPoseBase) bone.quaternion.copy(quaternion);
+  rig.pushPoseBase = null;
 }
 
 function rotatePushJointToward(joint, effector, target) {
@@ -1032,30 +1066,47 @@ function rotatePushJointToward(joint, effector, target) {
 }
 
 function applyCartPushPose(rig) {
-  if (!rig?.visual || !shoppingCart?.userData?.pushHandle) return;
-  shoppingCart.updateWorldMatrix(true,true);
-  if (!rig.pushArmChains) rig.pushArmChains = getCartPushArmChains(rig.visual);
-  const handle = shoppingCart.userData.pushHandle;
-  for (const chain of rig.pushArmChains) {
-    const target = shoppingCart.localToWorld(new THREE.Vector3(
-      chain.side * handle.halfWidth, handle.y, handle.z
-    ));
-    // CCD over forearm then upper arm: places each wrist at its side of the handle
-    // instead of merely pointing the arms forward.
-    for (let iteration=0; iteration<7; iteration++) {
-      rotatePushJointToward(chain.forearm, chain.hand, target);
-      rotatePushJointToward(chain.upper, chain.hand, target);
+  if (!rig?.visual) return;
+  if (!rig.pushArmChains || !rig.pushPoseBase) captureCartPushPose();
+  const chains = rig.pushArmChains || [];
+  if (!chains.length) return;
+
+  // O mixer do GLB sobrescreve rotações dos braços a cada quadro. Restauramos
+  // a pose base capturada ao começar a empurrar e aplicamos offsets fixos para
+  // trazer os braços da posição lateral para a frente, em direção ao cabo.
+  for (const [bone, quaternion] of rig.pushPoseBase || []) bone.quaternion.copy(quaternion);
+  for (const chain of chains) {
+    const side = chain.side;
+    if (chain.upper) {
+      chain.upper.rotation.y -= side * 1.05;
+      chain.upper.rotation.z += side * 0.12;
+    }
+    if (chain.forearm) {
+      chain.forearm.rotation.y -= side * 0.78;
+      chain.forearm.rotation.z += side * 0.08;
+    }
+    if (chain.hand) {
+      chain.hand.rotation.y -= side * 0.18;
+      chain.hand.rotation.z += side * 0.08;
     }
   }
-  // Some third-party rigs omit named hand bones. The fallback still raises both arms.
-  if (!rig.pushArmChains.length) {
-    rig.visual.traverse((bone) => {
-      if (!bone.isBone) return;
-      const n=bone.name.toLowerCase();
-      if (/leftarm$|rightarm$|upperarm/.test(n)) {
-        bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,0.85,0.28);
+
+  // Ajuste final dos pulsos para encostar no cabo real do carrinho, quando o rig
+  // possui ossos de mão e antebraço. A pose elevada acima permanece como base.
+  if (shoppingCart?.userData?.pushHandle) {
+    shoppingCart.updateWorldMatrix(true,true);
+    rig.visual.updateWorldMatrix(true,true);
+    const handle = shoppingCart.userData.pushHandle;
+    for (const chain of chains) {
+      if (!chain.hand || !chain.forearm) continue;
+      const target = shoppingCart.localToWorld(new THREE.Vector3(
+        chain.side * handle.halfWidth, handle.y, handle.z
+      ));
+      for (let iteration=0; iteration<4; iteration++) {
+        rotatePushJointToward(chain.forearm, chain.hand, target);
+        rotatePushJointToward(chain.upper, chain.hand, target);
       }
-    });
+    }
   }
 }
 
@@ -1666,6 +1717,7 @@ function interact() {
     return;
   }
   if (cartPushing) {
+    restoreCartPushPose();
     // Soltar sem interromper o analógico: conserva a velocidade de empurrão.
     if (cartVelocity.length() < 0.12 && cartHadPushMotion) cartVelocity.copy(cartLastPushVelocity);
     if (cartVelocity.length() < 0.2) {
@@ -1677,6 +1729,7 @@ function interact() {
     updatePrompt();return;
   }
   if (shoppingCart && distXZ(player.position, shoppingCart.position) <= 1.45 && !ladderCarried) {
+    captureCartPushPose();
     cartPushing=true;
     cartYaw=Math.PI;
     cartVelocity.set(0,0,0);
