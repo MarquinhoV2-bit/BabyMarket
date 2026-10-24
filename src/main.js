@@ -1252,7 +1252,8 @@ function alignBabyToCartAnchorsAndParent() {
   if(!player||!shoppingCart)return false;
   const rig=player.userData.babyRig;
   restoreCartPushAnimationBase(rig);
-  if(!shoppingCart.userData.fitScale)fitCartScaleToBabyGrip();
+  // Recalcula no momento da pegada, quando o rig completo do bebê já está carregado.
+  fitCartScaleToBabyGrip();
 
   if(rig?.isGLTF) {
     rig.cartPushArmChains=getRealCartPushArmChains(rig.visual);
