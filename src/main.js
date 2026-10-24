@@ -3030,7 +3030,7 @@ function loadScenario() {
         player = fallbackPlayer;
         scene.add(fallbackPlayer);
 
-        function finishScenarioReady(usingFallback) {
+        function finishScenarioReady(usingFallback, characterFailure = "") {
           Promise.all([ladderAssetReady, cartAssetReady]).then(([usingCustomLadder, usingOriginalCart]) => {
             fitCartScaleToBabyGrip();
             camera.position.set(0, 5.5, 13);
@@ -3039,7 +3039,7 @@ function loadScenario() {
             state = "MENU";
             uiTitle.textContent = "BABYMARKET";
             uiSubtitle.textContent = usingFallback
-              ? "O cenário está pronto, mas o bebê 3D não carregou. Vamos usar o personagem provisório."
+              ? "O bebê 3D não carregou. " + (characterFailure || "Erro não detalhado; abra o console para ver o registro.")
               : (!usingCustomLadder
                 ? "O bebê 3D carregou, mas a escada otimizada não foi encontrada. Usando a escada provisória."
                 : (!usingOriginalCart
@@ -3086,18 +3086,18 @@ function loadScenario() {
               finishScenarioReady(false);
             } catch (characterError) {
               console.error("[BabyMarket] Falha ao preparar o personagem GLB; usando provisório.", characterError);
-              uiSubtitle.textContent = "Falha ao preparar o bebê 3D: " + (characterError?.message || String(characterError));
+              const detail = characterError?.message || String(characterError || "erro sem mensagem");
               fallbackPlayer.visible = true;
-              finishScenarioReady(true);
+              finishScenarioReady(true, "Erro ao preparar o modelo: " + detail);
             }
           },
           undefined,
           (characterError) => {
             console.error("[BabyMarket] Falha ao carregar o personagem GLB; usando provisório.", characterError);
-            const detail = characterError?.message || characterError?.target?.statusText || String(characterError || "erro desconhecido");
-            uiSubtitle.textContent = "Falha ao baixar baby-player.glb: " + detail;
+            const detail = characterError?.message || characterError?.target?.statusText ||
+              (characterError?.type ? "evento " + characterError.type : String(characterError || "erro desconhecido"));
             fallbackPlayer.visible = true;
-            finishScenarioReady(true);
+            finishScenarioReady(true, "Falha ao baixar assets/models/baby-player.glb (v2): " + detail);
           }
         );
       } catch (e) {
