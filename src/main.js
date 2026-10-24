@@ -576,13 +576,16 @@ function detectCartPushHandle(model, modelBounds, modelSize) {
       x: handleCenter.x,
       y: handleCenter.y,
       z: handleCenter.z,
-      // As mãos miram a parte útil da barra, um pouco para dentro dos terminais.
-      halfWidth: Math.min(handleSize.x * 0.36, modelSize.x * 0.30),
+      // Pegadas próximas às extremidades: cada alvo fica a 44% da largura
+      // total da barra a partir do centro (88% entre as duas mãos), deixando
+      // uma pequena margem até as pontas físicas.
+      halfWidth: Math.max(0.01, handleSize.x * 0.44),
       sourceNode: "tripo_part_3"
     };
-    console.info("[BabyMarket] Anchor real da alça (tripo_part_3):", {
+    console.info("[BabyMarket] Anchor da alça (tripo_part_3), pegada perto das pontas:", {
       x: anchor.x.toFixed(3), y: anchor.y.toFixed(3),
-      z: anchor.z.toFixed(3), halfWidth: anchor.halfWidth.toFixed(3)
+      z: anchor.z.toFixed(3), halfWidth: anchor.halfWidth.toFixed(3),
+      gripSpan: (anchor.halfWidth * 2).toFixed(3)
     });
     return anchor;
   }
@@ -594,7 +597,7 @@ function detectCartPushHandle(model, modelBounds, modelSize) {
     x: 0,
     y: modelBounds.min.y + modelSize.y * 0.924,
     z: modelBounds.min.z + modelSize.z * 0.071,
-    halfWidth: Math.min(modelSize.x * 0.285, 0.235),
+    halfWidth: Math.max(0.01, modelSize.x * 0.40),
     sourceNode: "known-handle-fallback"
   };
 }
@@ -1061,7 +1064,10 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
 // Anchor points da alça no espaço local do carrinho.
 function cartHandleAnchorLocal(side) {
   const handle = shoppingCart?.userData?.pushHandle || { x: 0, y: 0.72, z: -0.5, halfWidth: 0.23 };
-  return new THREE.Vector3((handle.x || 0) + side * Math.max(0.02, handle.halfWidth), handle.y, handle.z);
+  // side=-1 sempre usa o ponto esquerdo da barra no eixo local do carrinho;
+  // side=+1 usa o ponto direito. Os anchors ficam perto dos terminais, não no centro.
+  const gripX = (handle.x || 0) + (side < 0 ? -1 : 1) * Math.max(0.02, handle.halfWidth);
+  return new THREE.Vector3(gripX, handle.y, handle.z);
 }
 
 function getRealCartPushArmChains(visual) {
