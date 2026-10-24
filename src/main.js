@@ -1606,8 +1606,12 @@ function interact() {
   if (shoppingCart && distXZ(player.position, shoppingCart.position) <= 1.45 && !ladderCarried) {
     cartPushing=true;
     cartYaw=Math.PI;
+    cartVelocity.set(0,0,0);
+    cartLastPushVelocity.set(0,0,0);
+    cartHadPushMotion=false;
     player.rotation.y=player.userData.babyRig?.isGLTF ? cartYaw : 0;
     updateShoppingCart(0,0);
+    cartPreviousPosition.copy(shoppingCart.position);
     message("Você está empurrando o carrinho. Solte-o para correr mais rápido.");
     updatePrompt();
     return;
