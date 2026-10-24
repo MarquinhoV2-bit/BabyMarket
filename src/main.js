@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { createCartPushClip } from "./cart-push-animation.js";
 
 // BabyMarket — primeira integração do cenário GLB (protótipo de teste).
 const css = document.createElement("style");
@@ -949,6 +950,8 @@ function createBabyFromGLTF(gltf) {
     if (key && !actions[key]) actions[key] = mixer.clipAction(clip);
   }
 
+  actions.pushCart = mixer.clipAction(createCartPushClip(THREE));
+
   if (!actions.idle || !actions.walk) {
     throw new Error("O personagem GLB precisa ter animações de espera e caminhada.");
   }
@@ -1052,15 +1055,16 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
     desired = intensity >= 0.84 && rig.actions.run ? "run" : "walk";
   }
 
-  if (cartPushing) desired = moved && rig.actions.walk ? "walk" : "idle";
+  if (cartPushing) desired = rig.actions.pushCart ? "pushCart" : (moved && rig.actions.walk ? "walk" : "idle");
   switchBabyClip(rig, desired, playbackDirection);
   if (rig.currentAction && rig.playbackDirection > 0) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
-    if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.58 + intensity * 0.22);
+    if (rig.currentKey === "pushCart") rig.currentAction.setEffectiveTimeScale(moved ? 0.88 + intensity * 0.14 : 0.22);
+    else if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.58 + intensity * 0.22);
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
   rig.mixer.update(dt);
-  if(cartPushing)applyRealCartPushPose(rig);
+  if (cartPushing && !rig.actions.pushCart) applyRealCartPushPose(rig);
 }
 
 // Anchor points da alça no espaço local do carrinho.
@@ -1263,6 +1267,25 @@ function alignBabyToCartAnchorsAndParent() {
     }
   } else if(!rig?.arms?.length) return false;
 
+  // Start the imported push pose before positioning the cart, so the handle is aligned
+  // to the actual animated hands rather than to an estimated shoulder position.
+  if (rig?.isGLTF && rig.actions.pushCart) {
+    rig.mixer.stopAllAction();
+    const pushAction = rig.actions.pushCart;
+    pushAction.reset();
+    pushAction.enabled = true;
+    pushAction.setLoop(THREE.LoopRepeat, Infinity);
+    pushAction.clampWhenFinished = false;
+    pushAction.setEffectiveTimeScale(1);
+    pushAction.setEffectiveWeight(1);
+    pushAction.play();
+    pushAction.time = 0;
+    rig.currentAction = pushAction;
+    rig.currentKey = "pushCart";
+    rig.playbackDirection = 1;
+    rig.mixer.update(0);
+  }
+
   player.updateWorldMatrix(true,true);
   rig?.visual?.updateWorldMatrix(true,true);
   const metrics=getCartGripMetrics(rig);
@@ -1271,9 +1294,16 @@ function alignBabyToCartAnchorsAndParent() {
   const targetHandleY=shoppingCart.userData.targetHandleY ??
     THREE.MathUtils.clamp(metrics.center.y-0.055,0.46,0.64);
   const forwardGap=THREE.MathUtils.clamp(metrics.averageArmLength*0.54,0.15,0.22);
-  // The cart handle midpoint sits just ahead of the shoulder midpoint. This controls
-  // the body/cart spacing; the wrist joints then solve the remaining reach to each end.
   const desiredHandleCenter=metrics.center.clone().addScaledVector(forward,forwardGap);
+  if (rig?.isGLTF && rig.actions.pushCart && rig.cartPushArmChains?.length >= 2) {
+    const hands = rig.cartPushArmChains.map(handWorldPosition);
+    if (hands.length >= 2) {
+      const handsMidpoint = hands.reduce((sum, p) => sum.add(p), new THREE.Vector3())
+        .multiplyScalar(1 / hands.length);
+      desiredHandleCenter.x = handsMidpoint.x;
+      desiredHandleCenter.z = handsMidpoint.z;
+    }
+  }
   desiredHandleCenter.y=targetHandleY;
 
   const cartYaw=player.rotation.y;
@@ -1288,7 +1318,7 @@ function alignBabyToCartAnchorsAndParent() {
 
   // IK uses the original skeleton's two chains: left hand -> left endpoint,
   // right hand -> right endpoint. No surrogate meshes or hands are created.
-  if(rig?.isGLTF)applyRealCartPushPose(rig,18);
+  if (rig?.isGLTF && !rig.actions.pushCart) applyRealCartPushPose(rig,18);
   player.attach(shoppingCart);
   shoppingCart.userData.attachedToBaby=true;
   cartPreviousPosition.copy(worldPos(shoppingCart));
