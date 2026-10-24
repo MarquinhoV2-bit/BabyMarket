@@ -4,19 +4,27 @@ import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders
 // Animation de empurrar extraída do GLB original do Tripo.
 const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:Neck","mixamorig:Head","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand"];
 const CART_PUSH_DYNAMIC_BONES = new Set(["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot"]);
-const CART_PUSH_SOURCE_REST = "AAB+pQAAgloTgAAAAABCBPj73fp9BbZ/FiZ/OSLDAVntfwAAAABCBHkEg/ojBbJ/MSBJPdK/cFYAAAAAAAD/fwAAAAAAAP9/oP4yDTINn35Yl6AJyfMHSMLlwAJK+yh9M/PGCuvnl3zoFiD+BQxXfXf/A+RJ4415AAAAAAAA/3+WZlHT8+dPOZAWcB3M8a558Aj3Nx3nCXBvAQ4Gj/3Sfw==";
-const CART_PUSH_DATA = "B/7BpfoAvVo4/IejPAJjWBL6jqB6AgtVp/j3nyoCRlSq+EGdygEXUdP6mJkZB0dMWfrBmbwJLEzv+WyZeAm5S8z62ZokCbhNQvY9nRUHhlA388Cc1gWXT8/yLp0jBRxQxPP6ncQDTlEY9kmb9QUkTkv31ZpHCj5NvfcimyULkE1w+s2cUAvmTxv5dKC1CjZU4PXnoEgJj1Q190mgngcuVLn3nZ/sBoZTe/g+noUGBlLv+HadWgU0UQf+waX6AL1aOoHS+HkN4Ah3gZL8WA8vCyuD4vS2FL8PmoWs6PwYSA9FhbfiuQ+tDi+CK+riBXoG0YAg9W0JwQB+gIcCvAo5/v+AwAwKCQT9WIJcFl8HPQZngTcKXAXxDv+BhPSrCb8QM4R952gQqA1vgubpnwYqCRCBJPMDCgYCr4DR/hkNPf/7gBkKvQvw/FCBZhBvBwoD2IDsBu4E7gtDgZ73uwZUDn2BlvWZB4oOHIEC+hAJyQwTgfz8HAvXCzqB0vh5DeAIhv89+/MXpX2N/0f7ThotfUn/P/stMH12TP/K+rcrL3hf/yL7lh4xfEz/mvvfJ4x5Pf9B+zwpFHl8/zz72CCee6H/T/sSHlN8lv+v+3UmAXor/0z8OUWYaw3/t/vhQD9uh/+n+gMeUHx9/177xyCkez7/Ovu2KpB4Q/9V+5Up9niE/0n7VSPuenL/xPtrLZd3GP9T/NZFM2sg/8T7eDy7cIr/ZvtiIXt7mP8h+1Ub83yS/x77GhlqfYb/PfvzF6V9gxvVM3e2ylbdHlAxc7VDVoEoVDDwvPBYXBvEMh+6aVqgFs0y07v3XNog/zIsvcNaZSbWMpS2RlM2KVQyG7TyT3grpjDKrmBKnCaeM9KvJ0yxHIM8mr5MV1AfqjcBuGNUfxcbNVi9kFy9HQA2usFMXVMlSjW0uBFUmil9ND+yf0yZKdYzZa21Rwgl9jYNr75JvR4iO2+7F1UWIxI1BrbXUgYYFDeetRZVlRjpN8e3PFY6Gn43+rZXVYMb1TN3tspWqX3EALEXiQX8fYP94xURBZl+SPlREUMDUX5f8l0PTgLBfXrqbwkMBGF9c+xHApcQvn2sBM0HIRa3fGkT7w4mD7l8JRgqC/AKi30xFhUKQgUtf/QKbgnjAIJ/7P4hCwYAsH6q82cNQQGVfVLrLgn+Cdt9cPvKCaYUGnzhEMUTgRE1ezgZAhUzC8V8ghj/C2oID36NE94JhgPPfjMO7gmVASZ/RQpWCv8Ba3+tB5MI6QOrf7cD/AanBKl9xACxF4kFGwJ6+vsUIH5SAm36xBbQfVsCX/rWFst95wE7+qUTVX5xAQn6+g/ZfmwDh/kgJ6Z5GQfI+gdHHWo/BMf6FikJeU8B2Po7DE1/RgOh+vIfyXvrA8X6LSb/easD2foQI/B6AwOw+lUeM3w1AyP6syFNe90G9foLRstqSQZt+4s+aG9KAhP7fBUQfmkCp/opFu19qAPP+m8j1XqAA+76PiIte4ID3/q6Igp7gwPG+tkiAHvrAqn6RB11fBsCevr7FCB+WCdYQVi6l0seKTY/hLi+StQquj0ht65JDi0YPTG27EfWLxM9abVKRfko90NlvSlLzyoyP7zDN1MdKwFCMsafUhgptUUeykJTZCIcQfPFIVcJJNQ81Lo9UbUofDq6tRZMAy/UOCGz9UYSMIM8TreYR5sjfkPIvzpQgC4zP9/AAU+zKI1GD8eqUMIgQ0W5x7VVphzUQTjBXVUZHyE/jrz1UrYiajzEuTZRSCbbO8G4HU9TJzA9OrrlTlgnWEFYupdL/fyp/5MA9X8r/3D+zgXaf4D8EwmiA5N/S6E9+lXRIUgPEBLqYseHb2sAYv8t2kd65ivVHRXswnKrAZHmaebLelD91wv2+lJ/VFnk3+LNuEWV3Bct/8fMY0sNzkFE5aZpb99NXU/ng00=";
-const CART_PUSH_FRAMES = 24;
+
+const CART_PUSH_SOURCE_REST = "AAB+pQAAgloTgAAAAABCBPj73fp9BbZ/FiZ/OSLDAVmqHLAat/myeQAAAAAAAP9/7X8AAAAAQgR5BIP6IwWyfzEgST3Sv3BWcxyOHs74yHgAAAAAAAD/fwAAAAAAAP9/AAAAAAAA/3+g/jINMg2ffliXoAnJ8wdIwuXAAkr7KH0z88YK6+eXfOgWIP4FDFd9mMeT+PIFgHLgyNP0uwmQcgAAAAAAAP9/AAAAAAAA/39A2MH3Eg2veEC13APL/tNnAAAAAAAA/38AAAAAAAD/f5TUxPgMCdl3Jb4oBM36jm0AAAAAAAD/fwAAAAAAAP9/hd08+00EGXtDtD8BW/jkZgAAAAAAAD/fwAAAAAAAP9/AAAAAAAA/39C9TH9QAVof7/TEvwZBPh3AAAAAAAA/38AAAAAAAD/f3f/A+RJ4415AAAAAAAA/38AAAAAAAD/f5ZmUdPz5085kBZwHczxrnnwCPc3HecJcG8BDgaP/dJ/DwWfu5YoLGRtUYD3CfSpYQAAAAAAAP9/AAAAAAAA/38JEcreohwKd+xC1/JuFvdpAAAAAAAA/38AAAAAAAD/fykSi83IJo9t/z5hAaz8XW8AAAAAAAD/fwAAAAAAAP9/vxGL2H8g/3MwReH1Iw8iagAAAAAAAD/fwAAAAAAAP9/vzOi0wA4vlzoG+r1gQklfAAAAAAAA/38AAAAAAAD/fw==";
+const CART_PUSH_DATA = "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";
+const CART_PUSH_FRAMES = 48;
 const CART_PUSH_DURATION = 3.5;
 
 function createCartPushClip(THREE, visual) {
-  const restBytes = Uint8Array.from(atob(CART_PUSH_SOURCE_REST), c => c.charCodeAt(0));
-  const poseBytes = Uint8Array.from(atob(CART_PUSH_DATA), c => c.charCodeAt(0));
+  const restBytes = Uint8Array.from(atob(CART_PUSH_SOURCE_REST), (c) => c.charCodeAt(0));
+  const poseBytes = Uint8Array.from(atob(CART_PUSH_DATA), (c) => c.charCodeAt(0));
+  if (restBytes.byteLength !== 520 || poseBytes.byteLength !== 3152) {
+    throw new Error("Dados da animação Tripo incompletos: " + restBytes.byteLength + "/" + poseBytes.byteLength);
+  }
+
   const restView = new DataView(restBytes.buffer);
   const poseView = new DataView(poseBytes.buffer);
   let restOffset = 0;
   let poseOffset = 0;
-  function readQuaternion(view, offset) {
+  const tracks = [];
+  let missingBones = 0;
+
+  const readQuaternion = (view, offset) => {
     const q = new THREE.Quaternion(
       view.getInt16(offset, true) / 32767,
       view.getInt16(offset + 2, true) / 32767,
@@ -24,41 +32,55 @@ function createCartPushClip(THREE, visual) {
       view.getInt16(offset + 6, true) / 32767
     );
     return q.normalize();
-  }
-  const times = Float32Array.from({length:CART_PUSH_FRAMES}, (_,i)=>i*CART_PUSH_DURATION/(CART_PUSH_FRAMES-1));
-  const tracks = [];
-  let missingBones = 0;
-  for (const name of CART_PUSH_BONES) {
+  };
+
+  for (const boneName of CART_PUSH_BONES) {
     const sourceRest = readQuaternion(restView, restOffset);
     restOffset += 8;
-    const count = CART_PUSH_DYNAMIC_BONES.has(name) ? CART_PUSH_FRAMES : 1;
+
+    const frameCount = CART_PUSH_DYNAMIC_BONES.has(boneName) ? CART_PUSH_FRAMES : 1;
     const sourceFrames = [];
-    for (let i=0;i<count;i++) {
+    for (let frame = 0; frame < frameCount; frame++) {
       sourceFrames.push(readQuaternion(poseView, poseOffset));
       poseOffset += 8;
     }
-    const bone = visual.getObjectByName(name);
-    if (!bone || !bone.isBone) { missingBones++; continue; }
+
+    const bone = visual.getObjectByName(boneName);
+    if (!bone || !bone.isBone) {
+      missingBones++;
+      continue;
+    }
+
     const targetRest = bone.quaternion.clone().normalize();
-    const inverseSourceRest = sourceRest.clone().invert();
-    const sampleCount = count === 1 ? 2 : CART_PUSH_FRAMES;
+    const sourceRestInverse = sourceRest.clone().invert();
+    const sampleCount = frameCount === 1 ? 2 : CART_PUSH_FRAMES;
     const values = new Float32Array(sampleCount * 4);
     let previous = null;
-    for (let i=0;i<sampleCount;i++) {
-      const sourcePose = sourceFrames[count === 1 ? 0 : i];
-      const q = targetRest.clone().multiply(inverseSourceRest).multiply(sourcePose).normalize();
-      if (previous && previous.dot(q)<0) q.set(-q.x,-q.y,-q.z,-q.w);
-      values.set([q.x,q.y,q.z,q.w],i*4);
-      previous=q;
+
+    for (let frame = 0; frame < sampleCount; frame++) {
+      const sourcePose = sourceFrames[frameCount === 1 ? 0 : frame];
+      const targetPose = targetRest.clone().multiply(sourceRestInverse).multiply(sourcePose).normalize();
+      if (previous && previous.dot(targetPose) < 0) {
+        targetPose.set(-targetPose.x, -targetPose.y, -targetPose.z, -targetPose.w);
+      }
+      values.set([targetPose.x, targetPose.y, targetPose.z, targetPose.w], frame * 4);
+      previous = targetPose;
     }
-    const trackTimes = count === 1 ? new Float32Array([0,CART_PUSH_DURATION]) : times;
-    tracks.push(new THREE.QuaternionKeyframeTrack(name+".quaternion",trackTimes,values));
+
+    const times = frameCount === 1
+      ? new Float32Array([0, CART_PUSH_DURATION])
+      : Float32Array.from({ length: CART_PUSH_FRAMES }, (_, frame) => frame * CART_PUSH_DURATION / (CART_PUSH_FRAMES - 1));
+    tracks.push(new THREE.QuaternionKeyframeTrack(boneName + ".quaternion", times, values));
   }
-  if (restOffset!==restBytes.length || poseOffset!==poseBytes.length) {
-    throw new Error("Dados da animação de empurrar incompletos.");
+
+  if (restOffset !== restBytes.byteLength || poseOffset !== poseBytes.byteLength) {
+    throw new Error("A animação Tripo não foi decodificada por completo.");
   }
-  console.info("[BabyMarket] Animação push extraída carregada:",{tracks:tracks.length,missingBones,duration:CART_PUSH_DURATION});
-  return new THREE.AnimationClip("PushCart",CART_PUSH_DURATION,tracks);
+  console.info("[BabyMarket] Animação real do Tripo preparada:", {
+    tracks: tracks.length, missingBones, frames: CART_PUSH_FRAMES, duration: CART_PUSH_DURATION
+  });
+  if (tracks.length < 10) throw new Error("O retarget da animação não encontrou ossos suficientes.");
+  return new THREE.AnimationClip("PushCart", CART_PUSH_DURATION, tracks);
 }
 
 
