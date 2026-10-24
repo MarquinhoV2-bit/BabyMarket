@@ -561,52 +561,38 @@ function boundsRelativeTo(root, object) {
 }
 
 function detectCartPushHandle(model, modelBounds, modelSize) {
-  const candidates = [];
-  const totalVolumeScale = Math.max(0.0001, modelSize.x * modelSize.y * modelSize.z);
-  model.traverse((object) => {
-    if (!object.isMesh || !object.geometry) return;
-    const box = boundsRelativeTo(model, object);
-    const size = box.getSize(new THREE.Vector3());
-    const center = box.getCenter(new THREE.Vector3());
-    if (size.x < modelSize.x * 0.30 ||
-        size.y > modelSize.y * 0.20 ||
-        size.z > modelSize.z * 0.30 ||
-        center.y < modelBounds.min.y + modelSize.y * 0.67) return;
-
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    const redHandleMaterial = materials.some((material) => {
-      if (!material?.color) return false;
-      const c = material.color;
-      return c.r > 0.42 && c.r > c.g * 1.5 && c.r > c.b * 1.35;
-    });
-    const namedHandle = /handle|grip|pushbar|push_bar|cabo/i.test(object.name || "");
-    const endDistance = Math.min(
-      Math.abs(center.z - modelBounds.min.z),
-      Math.abs(modelBounds.max.z - center.z)
-    ) / Math.max(0.0001,modelSize.z);
-    if (endDistance > 0.28 && !namedHandle) return;
-    const score = (redHandleMaterial ? 8 : 0) + (namedHandle ? 6 : 0) +
-      (size.x/modelSize.x)*3 + ((center.y-modelBounds.min.y)/modelSize.y) -
-      endDistance*3 - (size.y/modelSize.y);
-    candidates.push({ box, size, center, score, redHandleMaterial, name:object.name });
-  });
-  candidates.sort((a,b)=>b.score-a.score);
-  const best = candidates[0];
-  if (best) {
-    console.info("[BabyMarket] Suporte do carrinho identificado:", best.name || "(malha sem nome)");
-    return {
-      x: best.center.x,
-      y: best.center.y,
-      z: best.center.z,
-      halfWidth: Math.min(best.size.x * 0.37, modelSize.x * 0.36)
+  // No GLB original da Tripo, tripo_part_3 é a barra vermelha horizontal
+  // que funciona como alça. Não inferimos por cor/altura nem pela caixa global:
+  // essas heurísticas selecionavam a borda superior do cesto.
+  const handleObject = model.getObjectByName("tripo_part_3");
+  if (handleObject) {
+    const handleBox = boundsRelativeTo(model, handleObject);
+    const handleSize = handleBox.getSize(new THREE.Vector3());
+    const handleCenter = handleBox.getCenter(new THREE.Vector3());
+    const anchor = {
+      x: handleCenter.x,
+      y: handleCenter.y,
+      z: handleCenter.z,
+      // As mãos miram a parte útil da barra, um pouco para dentro dos terminais.
+      halfWidth: Math.min(handleSize.x * 0.36, modelSize.x * 0.30),
+      sourceNode: "tripo_part_3"
     };
+    console.info("[BabyMarket] Anchor real da alça (tripo_part_3):", {
+      x: anchor.x.toFixed(3), y: anchor.y.toFixed(3),
+      z: anchor.z.toFixed(3), halfWidth: anchor.halfWidth.toFixed(3)
+    });
+    return anchor;
   }
-  // Fallback for exports where the cart is merged into a single mesh.
+
+  // Reserva para exportações mescladas: usa as coordenadas conhecidas da alça
+  // deste modelo, sem escolher outra barra como candidata.
+  console.warn("[BabyMarket] tripo_part_3 não está presente; usando anchor de reserva da alça.");
   return {
     x: 0,
-    y: modelBounds.max.y - modelSize.y * 0.075,
-    z: modelBounds.min.z + modelSize.z * 0.025,
-    halfWidth: Math.min(0.27,modelSize.x*0.34)
+    y: modelBounds.min.y + modelSize.y * 0.924,
+    z: modelBounds.min.z + modelSize.z * 0.071,
+    halfWidth: Math.min(modelSize.x * 0.285, 0.235),
+    sourceNode: "known-handle-fallback"
   };
 }
 
@@ -711,9 +697,12 @@ function updateShoppingCart(dt,movedDistance=0){
      cartLastPushVelocity.copy(cartVelocity);cartHadPushMotion=true;
      for(const pivot of cartWheelPivots)pivot.rotation.x-=delta.length()/.095;
    } else if(dt>0)cartVelocity.set(0,0,0);
-   // Mantém a rotação local de encaixe: o carrinho acompanha as curvas do bebê.
-   // cartYaw fica em coordenadas mundiais para a velocidade ao soltar.
-   cartYaw = player.rotation.y + shoppingCart.rotation.y;
+   // Não sobrescreve a rotação local: o parenting gira o carrinho junto com o bebê.
+   // Atualiza apenas o yaw mundial para o impulso utilizado ao soltar.
+   const cartForwardWorld = new THREE.Vector3(0,0,1).applyQuaternion(
+     shoppingCart.getWorldQuaternion(new THREE.Quaternion())
+   );
+   cartYaw = Math.atan2(cartForwardWorld.x,cartForwardWorld.z);
  } else if(dt>0&&cartVelocity.lengthSq()>.0004) {
    const current=worldPos(shoppingCart),next=current.clone().addScaledVector(cartVelocity,dt);next.y=0;
    if(cartBlockedAt(next,shoppingCart.rotation.y))cartVelocity.set(0,0,0);
