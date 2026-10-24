@@ -711,7 +711,9 @@ function updateShoppingCart(dt,movedDistance=0){
      cartLastPushVelocity.copy(cartVelocity);cartHadPushMotion=true;
      for(const pivot of cartWheelPivots)pivot.rotation.x-=delta.length()/.095;
    } else if(dt>0)cartVelocity.set(0,0,0);
-   shoppingCart.rotation.y=cartYaw-player.rotation.y;
+   // Mantém a rotação local de encaixe: o carrinho acompanha as curvas do bebê.
+   // cartYaw fica em coordenadas mundiais para a velocidade ao soltar.
+   cartYaw = player.rotation.y + shoppingCart.rotation.y;
  } else if(dt>0&&cartVelocity.lengthSq()>.0004) {
    const current=worldPos(shoppingCart),next=current.clone().addScaledVector(cartVelocity,dt);next.y=0;
    if(cartBlockedAt(next,shoppingCart.rotation.y))cartVelocity.set(0,0,0);
