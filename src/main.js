@@ -321,8 +321,8 @@ const cartWheelPivots = [];
 const CART_PUSH_SPEED = 1.28;
 const CART_PUSH_OFFSET = 0.84;
 const CART_ALIGNMENT_MAX_OFFSET = 0.12;
-const CART_BODY_HALF_X = 0.10;
-const CART_BODY_HALF_Z = 0.13;
+const CART_BODY_HALF_X = 0.12;
+const CART_BODY_HALF_Z = 0.16;
 let cartVelocity = new THREE.Vector3();
 let cartLastPushVelocity = new THREE.Vector3();
 let cartPreviousPosition = new THREE.Vector3();
@@ -481,7 +481,7 @@ function addCartAxialCylinder(parent,radius,depth,x,y,z,material,segments=20){
 }
 function createProceduralShoppingCart(){
  const root=new THREE.Group();root.name="BabyMarket_ShoppingCart";root.userData.isShoppingCart=true;
- root.scale.setScalar(0.25);
+ root.scale.setScalar(0.30);
  root.userData.pushHandle={y:0.84,z:-0.57,halfWidth:0.29};
  const silver=new THREE.MeshStandardMaterial({color:0x9aa6b7,metalness:0.72,roughness:0.3});
  const brightSilver=new THREE.MeshStandardMaterial({color:0xd7e0eb,metalness:0.65,roughness:0.27});
@@ -625,7 +625,7 @@ function loadShoppingCartAsset() {
           root.userData.source = "Tripo original";
           root.userData.wheelNodeNames = requiredWheelNames.slice();
           // Redução leve (~5,5%) para melhorar proporção com o bebê.
-          root.scale.setScalar(0.25);
+          root.scale.setScalar(0.30);
           // As mãos miram o centro do cabo estimado a partir das dimensões reais do GLB.
           root.userData.pushHandle = detectCartPushHandle(model, modelBounds, modelSize);
           root.add(model);
