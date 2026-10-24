@@ -319,8 +319,8 @@ let cartPushing = false;
 let cartYaw = Math.PI;
 const cartWheelPivots = [];
 const CART_PUSH_SPEED = 1.28;
-const CART_BODY_HALF_X = 0.24;
-const CART_BODY_HALF_Z = 0.32;
+const CART_BODY_HALF_X = 0.12;
+const CART_BODY_HALF_Z = 0.16;
 let cartVelocity = new THREE.Vector3();
 let cartLastPushVelocity = new THREE.Vector3();
 let cartPreviousPosition = new THREE.Vector3();
@@ -479,7 +479,7 @@ function addCartAxialCylinder(parent,radius,depth,x,y,z,material,segments=20){
 }
 function createProceduralShoppingCart(){
  const root=new THREE.Group();root.name="BabyMarket_ShoppingCart";root.userData.isShoppingCart=true;
- root.scale.setScalar(0.60);
+ root.scale.setScalar(0.30);
  root.userData.pushHandle={y:0.84,z:-0.57,halfWidth:0.29};
  const silver=new THREE.MeshStandardMaterial({color:0x9aa6b7,metalness:0.72,roughness:0.3});
  const brightSilver=new THREE.MeshStandardMaterial({color:0xd7e0eb,metalness:0.65,roughness:0.27});
@@ -623,7 +623,7 @@ function loadShoppingCartAsset() {
           root.userData.source = "Tripo original";
           root.userData.wheelNodeNames = requiredWheelNames.slice();
           // Redução leve (~5,5%) para melhorar proporção com o bebê.
-          root.scale.setScalar(0.60);
+          root.scale.setScalar(0.30);
           // As mãos miram o centro do cabo estimado a partir das dimensões reais do GLB.
           root.userData.pushHandle = detectCartPushHandle(model, modelBounds, modelSize);
           root.add(model);
@@ -662,7 +662,7 @@ function resetShoppingCart(){
  cartPushing=false;cartYaw=Math.PI;cartVelocity.set(0,0,0);cartLastPushVelocity.set(0,0,0);cartHadPushMotion=false;
  shoppingCart.userData.attachedToBaby=false;
  shoppingCart.rotation.set(0,cartYaw,0);
- shoppingCart.position.set(startPosition.x,0,startPosition.z-.70);shoppingCart.visible=true;
+ shoppingCart.position.set(startPosition.x,0,startPosition.z-.42);shoppingCart.visible=true;
  cartPreviousPosition.copy(worldPos(shoppingCart));
  cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
 }
@@ -1808,9 +1808,9 @@ function interact() {
     if(shoppingCart.parent!==scene)scene.attach(shoppingCart);
     shoppingCart.rotation.set(0,cartYaw,0);
     shoppingCart.position.set(
-      player.position.x+Math.sin(cartYaw)*.70,
+      player.position.x+Math.sin(cartYaw)*.42,
       0,
-      player.position.z+Math.cos(cartYaw)*.70
+      player.position.z+Math.cos(cartYaw)*.42
     );
     shoppingCart.updateWorldMatrix(true,true);
     if(!alignBabyToCartAnchorsAndParent()) {
