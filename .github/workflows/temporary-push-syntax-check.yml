@@ -1,0 +1,20 @@
+name: Temporary push-animation syntax check
+
+on:
+  push:
+    branches:
+      - feature/cart-push-animation-physics
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check JavaScript module syntax
+        run: node --input-type=module --check < src/main.js
