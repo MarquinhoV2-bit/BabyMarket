@@ -1066,28 +1066,59 @@ function createBabyFromGLTF(gltf) {
     return "";
   }
 
-  for (const sourceClip of gltf.animations || []) {
-    const clip = sourceClip.clone();
+  const sourceClips = Array.isArray(gltf.animations) ? gltf.animations : [];
 
-    // O deslocamento horizontal do quadril fica sob controle do código de movimento.
-    // Mantemos a oscilação vertical do quadril, que dá peso à caminhada.
-    if (hips) {
-      for (const track of clip.tracks) {
-        if (
-          track.name.toLowerCase().includes("mixamorig:hips.position") &&
-          track.values &&
-          track.values.length >= 3
-        ) {
-          for (let i = 0; i < track.values.length; i += 3) {
-            track.values[i] = bindHipsPosition.x;
-            track.values[i + 2] = bindHipsPosition.z;
+  // Montar um clipe pode falhar por causa de uma trilha individual. Isso não
+  // deve impedir que o modelo 3D seja mostrado.
+  for (const sourceClip of sourceClips) {
+    try {
+      const clip = sourceClip.clone();
+
+      // O deslocamento horizontal do quadril é controlado pelo movimento do jogo.
+      if (hips) {
+        for (const track of clip.tracks) {
+          if (
+            track.name.toLowerCase().includes("mixamorig:hips.position") &&
+            track.values &&
+            track.values.length >= 3
+          ) {
+            for (let i = 0; i < track.values.length; i += 3) {
+              track.values[i] = bindHipsPosition.x;
+              track.values[i + 2] = bindHipsPosition.z;
+            }
           }
         }
       }
-    }
 
-    const key = animationKey(clip.name);
-    if (key && !actions[key]) actions[key] = mixer.clipAction(clip);
+      const key = animationKey(clip.name);
+      if (key && !actions[key]) actions[key] = mixer.clipAction(clip);
+    } catch (animationSetupError) {
+      console.warn("[BabyMarket] Uma animação do bebê foi ignorada:", sourceClip?.name, animationSetupError);
+    }
+  }
+
+  // A falta de uma animação nomeada nunca deve fazer o bebê GLB ser descartado.
+  const fallbackIdleClip =
+    sourceClips.find((clip) => animationKey(clip.name) === "idle") || sourceClips[0] || null;
+  const fallbackWalkClip =
+    sourceClips.find((clip) => animationKey(clip.name) === "walk") ||
+    sourceClips.find((clip) => animationKey(clip.name) === "run") ||
+    fallbackIdleClip;
+
+  if (!actions.idle && fallbackIdleClip) {
+    try {
+      actions.idle = mixer.clipAction(fallbackIdleClip.clone());
+    } catch (fallbackIdleError) {
+      console.warn("[BabyMarket] Não foi possível montar a animação de espera:", fallbackIdleError);
+    }
+  }
+  if (!actions.walk && fallbackWalkClip) {
+    try {
+      actions.walk = mixer.clipAction(fallbackWalkClip.clone());
+    } catch (fallbackWalkError) {
+      console.warn("[BabyMarket] Não foi possível montar a animação de caminhada:", fallbackWalkError);
+      actions.walk = actions.idle || null;
+    }
   }
 
   // A falha no clipe de empurrar não pode impedir o carregamento do bebê GLB.
@@ -1099,9 +1130,8 @@ function createBabyFromGLTF(gltf) {
     actions.pushCart = null;
   }
 
-  if (!actions.idle || !actions.walk) {
-    throw new Error("O personagem GLB precisa ter animações de espera e caminhada.");
-  }
+  if (!actions.idle) actions.idle = null;
+  if (!actions.walk) actions.walk = actions.idle;
 
   const rig = {
     isGLTF: true,
@@ -3042,7 +3072,7 @@ function loadScenario() {
         uiButton.disabled = true;
         uiButton.style.display = "inline-block";
 
-        const babyUrl = new URL("../assets/models/baby-player.glb?v=1", import.meta.url).href;
+        const babyUrl = new URL("../assets/models/baby-player.glb?v=2", import.meta.url).href;
         new GLTFLoader().load(
           babyUrl,
           (babyGltf) => {
@@ -3056,6 +3086,7 @@ function loadScenario() {
               finishScenarioReady(false);
             } catch (characterError) {
               console.error("[BabyMarket] Falha ao preparar o personagem GLB; usando provisório.", characterError);
+              uiSubtitle.textContent = "Falha ao preparar o bebê 3D: " + (characterError?.message || String(characterError));
               fallbackPlayer.visible = true;
               finishScenarioReady(true);
             }
@@ -3063,6 +3094,8 @@ function loadScenario() {
           undefined,
           (characterError) => {
             console.error("[BabyMarket] Falha ao carregar o personagem GLB; usando provisório.", characterError);
+            const detail = characterError?.message || characterError?.target?.statusText || String(characterError || "erro desconhecido");
+            uiSubtitle.textContent = "Falha ao baixar baby-player.glb: " + detail;
             fallbackPlayer.visible = true;
             finishScenarioReady(true);
           }
