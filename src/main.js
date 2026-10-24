@@ -1215,7 +1215,9 @@ function alignBabyToCartAnchorsAndParent() {
       const elbow=chain.forearm.getWorldPosition(new THREE.Vector3());
       const hand=chain.hand.getWorldPosition(new THREE.Vector3());
       const armLength=shoulder.distanceTo(elbow)+elbow.distanceTo(hand);
-      const reach=THREE.MathUtils.clamp(armLength*0.72,0.20,0.34);
+      // Coloca o ponto da alça um pouco mais perto do bebê, usando o alcance
+      // efetivo da cadeia ombro-cotovelo-mão em vez de um afastamento fixo.
+      const reach=THREE.MathUtils.clamp(armLength*0.58,0.16,0.26);
       // Alvo das mãos à frente do ombro, no mesmo nível vertical do anchor da alça.
       const targetHand=shoulder.clone().addScaledVector(forward,reach);
       targetHand.y=shoppingCart.position.y + handle.y*scale;
@@ -1230,7 +1232,7 @@ function alignBabyToCartAnchorsAndParent() {
     player.updateWorldMatrix(true,true);
     for(const arm of rig.arms) {
       const shoulder=arm.pivot.getWorldPosition(new THREE.Vector3());
-      const reach=0.25;
+      const reach=0.18;
       const targetHand=shoulder.clone().addScaledVector(forward,reach);
       targetHand.y=shoppingCart.position.y+handle.y*scale;
       const localAnchor=new THREE.Vector3(
