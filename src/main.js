@@ -319,7 +319,7 @@ let cartPushing = false;
 let cartYaw = Math.PI;
 const cartWheelPivots = [];
 const CART_PUSH_SPEED = 1.28;
-const CART_BODY_HALF_X = 0.37;
+const CART_BODY_HALF_X = 0.34;
 const CART_BODY_HALF_Z = 0.46;
 let cartVelocity = new THREE.Vector3();
 let cartLastPushVelocity = new THREE.Vector3();
@@ -479,6 +479,8 @@ function addCartAxialCylinder(parent,radius,depth,x,y,z,material,segments=20){
 }
 function createProceduralShoppingCart(){
  const root=new THREE.Group();root.name="BabyMarket_ShoppingCart";root.userData.isShoppingCart=true;
+ root.scale.setScalar(0.85);
+ root.userData.pushHandle={y:0.84,z:-0.57,halfWidth:0.29};
  const silver=new THREE.MeshStandardMaterial({color:0x9aa6b7,metalness:0.72,roughness:0.3});
  const brightSilver=new THREE.MeshStandardMaterial({color:0xd7e0eb,metalness:0.65,roughness:0.27});
  const red=new THREE.MeshStandardMaterial({color:0xf52f38,roughness:0.3});
@@ -552,6 +554,11 @@ function loadShoppingCartAsset() {
           model.name = "CartRoot_OriginalTripo";
           const requiredWheelNames = ["tripo_part_1", "tripo_part_4", "tripo_part_5", "tripo_part_6"];
           const wheelNodes = requiredWheelNames.map((name) => model.getObjectByName(name));
+          model.updateWorldMatrix(true,true);
+          const modelBounds = new THREE.Box3().setFromObject(model);
+          const modelSize = modelBounds.getSize(new THREE.Vector3());
+          if (modelSize.x <= 0 || modelSize.y <= 0 || modelSize.z <= 0)
+            throw new Error("O modelo do carrinho não possui dimensões válidas.");
           if (wheelNodes.some((node) => !node))
             throw new Error("O GLB não contém as quatro peças de roda esperadas.");
 
@@ -562,7 +569,14 @@ function loadShoppingCartAsset() {
           root.userData.isShoppingCart = true;
           root.userData.source = "Tripo original";
           root.userData.wheelNodeNames = requiredWheelNames.slice();
-          root.scale.setScalar(0.9);
+          // Redução leve (~5,5%) para melhorar proporção com o bebê.
+          root.scale.setScalar(0.85);
+          // As mãos miram o centro do cabo estimado a partir das dimensões reais do GLB.
+          root.userData.pushHandle = {
+            y: modelBounds.max.y - modelSize.y * 0.035,
+            z: modelBounds.min.z + modelSize.z * 0.08,
+            halfWidth: Math.min(0.31, Math.max(0.26, modelSize.x * 0.39))
+          };
           root.add(model);
           root.traverse((object) => {
             if (object.isMesh) {
@@ -597,7 +611,7 @@ function resetShoppingCart(){
  if(!shoppingCart)return;
  cartPushing=false;cartYaw=Math.PI;cartVelocity.set(0,0,0);cartLastPushVelocity.set(0,0,0);cartHadPushMotion=false;
  shoppingCart.rotation.set(0,cartYaw,0);
- shoppingCart.position.set(startPosition.x,0,startPosition.z-.78);shoppingCart.visible=true;
+ shoppingCart.position.set(startPosition.x,0,startPosition.z-.70);shoppingCart.visible=true;
  cartPreviousPosition.copy(shoppingCart.position);
  cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
 }
@@ -605,11 +619,11 @@ function cartWorldBox(position=shoppingCart?.position,yaw=shoppingCart?.rotation
  const hx=CART_BODY_HALF_X,hz=CART_BODY_HALF_Z;
  const ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz;
  const ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
- return new THREE.Box3(new THREE.Vector3(position.x-ex,.015,position.z-ez),new THREE.Vector3(position.x+ex,.91,position.z+ez));
+ return new THREE.Box3(new THREE.Vector3(position.x-ex,.015,position.z-ez),new THREE.Vector3(position.x+ex,.79,position.z+ez));
 }
 function cartCanStandForPlayer(x,z,yaw){
  if(!shoppingCart||!colliderBoxes.length)return true;
- const cx=x+Math.sin(yaw)*.78,cz=z+Math.cos(yaw)*.78;
+ const cx=x+Math.sin(yaw)*.70,cz=z+Math.cos(yaw)*.70;
  const box=cartWorldBox(new THREE.Vector3(cx,0,cz),yaw);
  return !colliderBoxes.some(entry=>box.intersectsBox(entry.box));
 }
@@ -621,7 +635,7 @@ function updateShoppingCart(dt,movedDistance=0){
  if(!shoppingCart||!player)return;
  if(cartPushing){
    shoppingCart.rotation.y=cartYaw;
-   shoppingCart.position.set(player.position.x+Math.sin(cartYaw)*.78,0,player.position.z+Math.cos(cartYaw)*.78);
+   shoppingCart.position.set(player.position.x+Math.sin(cartYaw)*.70,0,player.position.z+Math.cos(cartYaw)*.70);
    if(dt>0 && movedDistance>.00001){
      cartVelocity.set((shoppingCart.position.x-cartPreviousPosition.x)/dt,0,(shoppingCart.position.z-cartPreviousPosition.z)/dt);
      cartLastPushVelocity.copy(cartVelocity);cartHadPushMotion=true;
@@ -734,7 +748,12 @@ function createBaby() {
     arm.position.set(side * 0.055, -0.10, 0);
     arm.rotation.z = side * 0.35;
     armPivot.add(arm);
-    arms.push({ pivot: armPivot, side });
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.044, 10, 8), skin);
+    hand.name = side < 0 ? "Baby_Hand_L" : "Baby_Hand_R";
+    hand.position.set(side * 0.055, -0.22, -0.015);
+    hand.castShadow = false;
+    armPivot.add(hand);
+    arms.push({ pivot: armPivot, side, hand });
 
     // Quadril articulado para passos alternados, mantendo o ponto de colisão estável.
     const legPivot = new THREE.Group();
@@ -961,7 +980,6 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
     desired = intensity >= 0.84 && rig.actions.run ? "run" : "walk";
   }
 
-  switchBabyClip(rig, desired, playbackDirection);
   if (cartPushing) desired = moved && rig.actions.walk ? "walk" : "idle";
   switchBabyClip(rig, desired, playbackDirection);
   if (rig.currentAction && rig.playbackDirection > 0) {
@@ -970,18 +988,73 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
   rig.mixer.update(dt);
-  if (cartPushing) {
-    // Sobreposição leve da pose de empurrar no rig GLB: ombros/braços à frente.
+  if (cartPushing) applyCartPushPose(rig);
+}
+
+function getCartPushArmChains(visual) {
+  const bones = [];
+  visual.traverse((obj) => {
+    if (!obj.isBone) return;
+    const normalized = obj.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    bones.push({ bone: obj, name: normalized });
+  });
+  const find = (side, kind) => {
+    const suffixes = {
+      upper: [side + "upperarm", side + "arm"],
+      forearm: [side + "forearm", side + "lowerarm"],
+      hand: [side + "hand"]
+    }[kind];
+    return bones.find(({name}) => suffixes.some((suffix) => name.endsWith(suffix)))?.bone || null;
+  };
+  return [-1, 1].map((side) => {
+    const token = side < 0 ? "left" : "right";
+    return {side, upper:find(token,"upper"), forearm:find(token,"forearm"), hand:find(token,"hand")};
+  }).filter((chain) => chain.upper && chain.forearm && chain.hand);
+}
+
+function rotatePushJointToward(joint, effector, target) {
+  if (!joint?.parent || !effector) return;
+  joint.updateWorldMatrix(true,false);
+  effector.updateWorldMatrix(true,false);
+  const pivot = joint.getWorldPosition(new THREE.Vector3());
+  const from = effector.getWorldPosition(new THREE.Vector3()).sub(pivot);
+  const to = target.clone().sub(pivot);
+  if (from.lengthSq() < 1e-7 || to.lengthSq() < 1e-7) return;
+  from.normalize();to.normalize();
+  const delta = new THREE.Quaternion().setFromUnitVectors(from,to);
+  // Limit each CCD step to avoid a sudden wrist/shoulder twist.
+  delta.slerp(new THREE.Quaternion(),0.28);
+  const parentWorld = joint.parent.getWorldQuaternion(new THREE.Quaternion());
+  const jointWorld = joint.getWorldQuaternion(new THREE.Quaternion());
+  jointWorld.premultiply(delta);
+  joint.quaternion.copy(parentWorld.invert().multiply(jointWorld));
+  if (player) player.updateWorldMatrix(true,true);
+}
+
+function applyCartPushPose(rig) {
+  if (!rig?.visual || !shoppingCart?.userData?.pushHandle) return;
+  shoppingCart.updateWorldMatrix(true,true);
+  if (!rig.pushArmChains) rig.pushArmChains = getCartPushArmChains(rig.visual);
+  const handle = shoppingCart.userData.pushHandle;
+  for (const chain of rig.pushArmChains) {
+    const target = shoppingCart.localToWorld(new THREE.Vector3(
+      chain.side * handle.halfWidth, handle.y, handle.z
+    ));
+    // CCD over forearm then upper arm: places each wrist at its side of the handle
+    // instead of merely pointing the arms forward.
+    for (let iteration=0; iteration<7; iteration++) {
+      rotatePushJointToward(chain.forearm, chain.hand, target);
+      rotatePushJointToward(chain.upper, chain.hand, target);
+    }
+  }
+  // Some third-party rigs omit named hand bones. The fallback still raises both arms.
+  if (!rig.pushArmChains.length) {
     rig.visual.traverse((bone) => {
       if (!bone.isBone) return;
       const n=bone.name.toLowerCase();
-      if (/leftarm|rightarm|leftshoulder|rightshoulder|upperarm/.test(n)) {
-        bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,-0.68,0.22);
-        if (/left/.test(n)) bone.rotation.z=THREE.MathUtils.lerp(bone.rotation.z,-0.25,0.22);
-        if (/right/.test(n)) bone.rotation.z=THREE.MathUtils.lerp(bone.rotation.z,0.25,0.22);
+      if (/leftarm$|rightarm$|upperarm/.test(n)) {
+        bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,0.85,0.28);
       }
-      if (/leftforearm|rightforearm|lowerarm/.test(n))
-        bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,-0.32,0.22);
     });
   }
 }
@@ -2070,12 +2143,12 @@ function updateBabyAnimation(dt, moved) {
 
     arm.pivot.rotation.x =
       -armStep * 0.38 * blend * (1-pushBlend) +
-      Math.sin(rig.clock * 1.3 + phaseOffset) * 0.018 * (1 - blend) -
-      0.98 * pushBlend - reach * actionStrength * actionArmWeight -
+      Math.sin(rig.clock * 1.3 + phaseOffset) * 0.018 * (1 - blend) +
+      2.05 * pushBlend - reach * actionStrength * actionArmWeight -
       climbStep * 0.66 * climbBlend;
     arm.pivot.rotation.z =
       arm.side * 0.015 * blend * (1-pushBlend) +
-      arm.side * 0.14 * actionStrength * actionArmWeight +
+      arm.side * 0.14 * actionStrength * actionArmWeight -
       arm.side * 0.38 * pushBlend + arm.side * 1.05 * celebrationStrength;
   }
 }
