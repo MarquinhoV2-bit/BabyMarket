@@ -1,81 +1,64 @@
 import * as THREE from "three";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
-// Pose de empurrar extraída do GLB real do Tripo e retargetada para o rig do BabyMarket.
-const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:LeftToeBase","mixamorig:LeftToe_End","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:RightToeBase","mixamorig:RightToe_End","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:LeftHandIndex1","mixamorig:LeftHandIndex2","mixamorig:LeftHandIndex3","mixamorig:LeftHandIndex4","mixamorig:LeftHandMiddle1","mixamorig:LeftHandMiddle2","mixamorig:LeftHandMiddle3","mixamorig:LeftHandMiddle4","mixamorig:LeftHandPinky1","mixamorig:LeftHandPinky2","mixamorig:LeftHandPinky3","mixamorig:LeftHandPinky4","mixamorig:LeftHandRing1","mixamorig:LeftHandRing2","mixamorig:LeftHandRing3","mixamorig:LeftHandRing4","mixamorig:LeftHandThumb1","mixamorig:LeftHandThumb2","mixamorig:LeftHandThumb3","mixamorig:LeftHandThumb4","mixamorig:Neck","mixamorig:Head","mixamorig:HeadTop_End","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand","mixamorig:RightHandIndex1","mixamorig:RightHandIndex2","mixamorig:RightHandIndex3","mixamorig:RightHandIndex4","mixamorig:RightHandMiddle1","mixamorig:RightHandMiddle2","mixamorig:RightHandMiddle3","mixamorig:RightHandMiddle4","mixamorig:RightHandPinky1","mixamorig:RightHandPinky2","mixamorig:RightHandPinky3","mixamorig:RightHandPinky4","mixamorig:RightHandRing1","mixamorig:RightHandRing2","mixamorig:RightHandRing3","mixamorig:RightHandRing4","mixamorig:RightHandThumb1","mixamorig:RightHandThumb2","mixamorig:RightHandThumb3","mixamorig:RightHandThumb4"];
+// Animation de empurrar extraída do GLB original do Tripo.
+const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:Neck","mixamorig:Head","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand"];
 const CART_PUSH_DYNAMIC_BONES = new Set(["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot"]);
-const CART_PUSH_DATA = "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";
-const CART_PUSH_FRAMES = 48;
+const CART_PUSH_SOURCE_REST = "AAB+pQAAgloTgAAAAABCBPj73fp9BbZ/FiZ/OSLDAVntfwAAAABCBHkEg/ojBbJ/MSBJPdK/cFYAAAAAAAD/fwAAAAAAAP9/oP4yDTINn35Yl6AJyfMHSMLlwAJK+yh9M/PGCuvnl3zoFiD+BQxXfXf/A+RJ4415AAAAAAAA/3+WZlHT8+dPOZAWcB3M8a558Aj3Nx3nCXBvAQ4Gj/3Sfw==";
+const CART_PUSH_DATA = "B/7BpfoAvVo4/IejPAJjWBL6jqB6AgtVp/j3nyoCRlSq+EGdygEXUdP6mJkZB0dMWfrBmbwJLEzv+WyZeAm5S8z62ZokCbhNQvY9nRUHhlA388Cc1gWXT8/yLp0jBRxQxPP6ncQDTlEY9kmb9QUkTkv31ZpHCj5NvfcimyULkE1w+s2cUAvmTxv5dKC1CjZU4PXnoEgJj1Q190mgngcuVLn3nZ/sBoZTe/g+noUGBlLv+HadWgU0UQf+waX6AL1aOoHS+HkN4Ah3gZL8WA8vCyuD4vS2FL8PmoWs6PwYSA9FhbfiuQ+tDi+CK+riBXoG0YAg9W0JwQB+gIcCvAo5/v+AwAwKCQT9WIJcFl8HPQZngTcKXAXxDv+BhPSrCb8QM4R952gQqA1vgubpnwYqCRCBJPMDCgYCr4DR/hkNPf/7gBkKvQvw/FCBZhBvBwoD2IDsBu4E7gtDgZ73uwZUDn2BlvWZB4oOHIEC+hAJyQwTgfz8HAvXCzqB0vh5DeAIhv89+/MXpX2N/0f7ThotfUn/P/stMH12TP/K+rcrL3hf/yL7lh4xfEz/mvvfJ4x5Pf9B+zwpFHl8/zz72CCee6H/T/sSHlN8lv+v+3UmAXor/0z8OUWYaw3/t/vhQD9uh/+n+gMeUHx9/177xyCkez7/Ovu2KpB4Q/9V+5Up9niE/0n7VSPuenL/xPtrLZd3GP9T/NZFM2sg/8T7eDy7cIr/ZvtiIXt7mP8h+1Ub83yS/x77GhlqfYb/PfvzF6V9gxvVM3e2ylbdHlAxc7VDVoEoVDDwvPBYXBvEMh+6aVqgFs0y07v3XNog/zIsvcNaZSbWMpS2RlM2KVQyG7TyT3grpjDKrmBKnCaeM9KvJ0yxHIM8mr5MV1AfqjcBuGNUfxcbNVi9kFy9HQA2usFMXVMlSjW0uBFUmil9ND+yf0yZKdYzZa21Rwgl9jYNr75JvR4iO2+7F1UWIxI1BrbXUgYYFDeetRZVlRjpN8e3PFY6Gn43+rZXVYMb1TN3tspWqX3EALEXiQX8fYP94xURBZl+SPlREUMDUX5f8l0PTgLBfXrqbwkMBGF9c+xHApcQvn2sBM0HIRa3fGkT7w4mD7l8JRgqC/AKi30xFhUKQgUtf/QKbgnjAIJ/7P4hCwYAsH6q82cNQQGVfVLrLgn+Cdt9cPvKCaYUGnzhEMUTgRE1ezgZAhUzC8V8ghj/C2oID36NE94JhgPPfjMO7gmVASZ/RQpWCv8Ba3+tB5MI6QOrf7cD/AanBKl9xACxF4kFGwJ6+vsUIH5SAm36xBbQfVsCX/rWFst95wE7+qUTVX5xAQn6+g/ZfmwDh/kgJ6Z5GQfI+gdHHWo/BMf6FikJeU8B2Po7DE1/RgOh+vIfyXvrA8X6LSb/easD2foQI/B6AwOw+lUeM3w1AyP6syFNe90G9foLRstqSQZt+4s+aG9KAhP7fBUQfmkCp/opFu19qAPP+m8j1XqAA+76PiIte4ID3/q6Igp7gwPG+tkiAHvrAqn6RB11fBsCevr7FCB+WCdYQVi6l0seKTY/hLi+StQquj0ht65JDi0YPTG27EfWLxM9abVKRfko90NlvSlLzyoyP7zDN1MdKwFCMsafUhgptUUeykJTZCIcQfPFIVcJJNQ81Lo9UbUofDq6tRZMAy/UOCGz9UYSMIM8TreYR5sjfkPIvzpQgC4zP9/AAU+zKI1GD8eqUMIgQ0W5x7VVphzUQTjBXVUZHyE/jrz1UrYiajzEuTZRSCbbO8G4HU9TJzA9OrrlTlgnWEFYupdL/fyp/5MA9X8r/3D+zgXaf4D8EwmiA5N/S6E9+lXRIUgPEBLqYseHb2sAYv8t2kd65ivVHRXswnKrAZHmaebLelD91wv2+lJ/VFnk3+LNuEWV3Bct/8fMY0sNzkFE5aZpb99NXU/ng00=";
+const CART_PUSH_FRAMES = 24;
 const CART_PUSH_DURATION = 3.5;
 
 function createCartPushClip(THREE, visual) {
-  const binary = atob(CART_PUSH_DATA);
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  const view = new DataView(bytes.buffer);
-  let offset = 0;
-
-  function readQuaternion() {
-    const values = [
+  const restBytes = Uint8Array.from(atob(CART_PUSH_SOURCE_REST), c => c.charCodeAt(0));
+  const poseBytes = Uint8Array.from(atob(CART_PUSH_DATA), c => c.charCodeAt(0));
+  const restView = new DataView(restBytes.buffer);
+  const poseView = new DataView(poseBytes.buffer);
+  let restOffset = 0;
+  let poseOffset = 0;
+  function readQuaternion(view, offset) {
+    const q = new THREE.Quaternion(
       view.getInt16(offset, true) / 32767,
       view.getInt16(offset + 2, true) / 32767,
       view.getInt16(offset + 4, true) / 32767,
-      view.getInt16(offset + 6, true) / 32767,
-    ];
-    offset += 8;
-    const q = new THREE.Quaternion(values[0], values[1], values[2], values[3]);
+      view.getInt16(offset + 6, true) / 32767
+    );
     return q.normalize();
   }
-
+  const times = Float32Array.from({length:CART_PUSH_FRAMES}, (_,i)=>i*CART_PUSH_DURATION/(CART_PUSH_FRAMES-1));
   const tracks = [];
   let missingBones = 0;
-  for (const boneName of CART_PUSH_BONES) {
-    const sourceRest = readQuaternion();
-    const frameCount = CART_PUSH_DYNAMIC_BONES.has(boneName) ? CART_PUSH_FRAMES : 1;
+  for (const name of CART_PUSH_BONES) {
+    const sourceRest = readQuaternion(restView, restOffset);
+    restOffset += 8;
+    const count = CART_PUSH_DYNAMIC_BONES.has(name) ? CART_PUSH_FRAMES : 1;
     const sourceFrames = [];
-    for (let frame = 0; frame < frameCount; frame++) sourceFrames.push(readQuaternion());
-
-    const bone = visual.getObjectByName(boneName);
-    if (!bone || !bone.isBone) {
-      missingBones++;
-      continue;
+    for (let i=0;i<count;i++) {
+      sourceFrames.push(readQuaternion(poseView, poseOffset));
+      poseOffset += 8;
     }
-
-    // Apply the source animation as a delta from its own rest pose onto the existing baby rig.
+    const bone = visual.getObjectByName(name);
+    if (!bone || !bone.isBone) { missingBones++; continue; }
     const targetRest = bone.quaternion.clone().normalize();
-    const sourceRestInverse = sourceRest.clone().invert();
-    const values = new Float32Array((frameCount === 1 ? 2 : frameCount) * 4);
-    const sampleCount = frameCount === 1 ? 2 : frameCount;
+    const inverseSourceRest = sourceRest.clone().invert();
+    const sampleCount = count === 1 ? 2 : CART_PUSH_FRAMES;
+    const values = new Float32Array(sampleCount * 4);
     let previous = null;
-    for (let frame = 0; frame < sampleCount; frame++) {
-      const sourcePose = sourceFrames[frameCount === 1 ? 0 : frame];
-      const targetPose = targetRest.clone().multiply(sourceRestInverse).multiply(sourcePose).normalize();
-      if (previous && previous.dot(targetPose) < 0) {
-        targetPose.set(-targetPose.x, -targetPose.y, -targetPose.z, -targetPose.w);
-      }
-      const i = frame * 4;
-      values[i] = targetPose.x;
-      values[i + 1] = targetPose.y;
-      values[i + 2] = targetPose.z;
-      values[i + 3] = targetPose.w;
-      previous = targetPose;
+    for (let i=0;i<sampleCount;i++) {
+      const sourcePose = sourceFrames[count === 1 ? 0 : i];
+      const q = targetRest.clone().multiply(inverseSourceRest).multiply(sourcePose).normalize();
+      if (previous && previous.dot(q)<0) q.set(-q.x,-q.y,-q.z,-q.w);
+      values.set([q.x,q.y,q.z,q.w],i*4);
+      previous=q;
     }
-
-    const times = frameCount === 1
-      ? new Float32Array([0, CART_PUSH_DURATION])
-      : Float32Array.from({ length: CART_PUSH_FRAMES }, (_, i) => i * CART_PUSH_DURATION / (CART_PUSH_FRAMES - 1));
-    tracks.push(new THREE.QuaternionKeyframeTrack(boneName + ".quaternion", times, values));
+    const trackTimes = count === 1 ? new Float32Array([0,CART_PUSH_DURATION]) : times;
+    tracks.push(new THREE.QuaternionKeyframeTrack(name+".quaternion",trackTimes,values));
   }
-
-  if (offset !== bytes.byteLength) {
-    console.warn("[BabyMarket] Tamanho inesperado dos dados da animação:", offset, bytes.byteLength);
+  if (restOffset!==restBytes.length || poseOffset!==poseBytes.length) {
+    throw new Error("Dados da animação de empurrar incompletos.");
   }
-  console.info("[BabyMarket] Animação push retargetada:", {
-    tracks: tracks.length,
-    missingBones,
-    duration: CART_PUSH_DURATION,
-    loopingPose: "torso, braços, mãos e dedos estáveis; quadril e pernas em ciclo"
-  });
-  return new THREE.AnimationClip("PushCart", CART_PUSH_DURATION, tracks);
+  console.info("[BabyMarket] Animação push extraída carregada:",{tracks:tracks.length,missingBones,duration:CART_PUSH_DURATION});
+  return new THREE.AnimationClip("PushCart",CART_PUSH_DURATION,tracks);
 }
 
 
