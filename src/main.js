@@ -1102,15 +1102,6 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   if (cartPushing && !rig.actions.pushCart) applyRealCartPushPose(rig);
 }
 
-// Anchor points da alça no espaço local do carrinho.
-function cartHandleAnchorLocal(side) {
-  const handle = shoppingCart?.userData?.pushHandle || { x: 0, y: 0.72, z: -0.5, halfWidth: 0.23 };
-  // side=-1 sempre usa o ponto esquerdo da barra no eixo local do carrinho;
-  // side=+1 usa o ponto direito. Os anchors ficam perto dos terminais, não no centro.
-  const gripX = (handle.x || 0) + (side < 0 ? -1 : 1) * Math.max(0.02, handle.halfWidth);
-  return new THREE.Vector3(gripX, handle.y, handle.z);
-}
-
 function getRealCartPushArmChains(visual) {
   const bones = [];
   visual.traverse((object) => {
