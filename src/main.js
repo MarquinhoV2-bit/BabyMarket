@@ -669,7 +669,8 @@ function resetShoppingCart(){
  cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
 }
 function cartWorldBox(position=shoppingCart?.position,yaw=shoppingCart?.rotation.y??cartYaw){
- const hx=CART_BODY_HALF_X,hz=CART_BODY_HALF_Z;
+ const scaleRatio=(shoppingCart?.scale?.x ?? 0.30)/0.30;
+ const hx=CART_BODY_HALF_X*scaleRatio,hz=CART_BODY_HALF_Z*scaleRatio;
  const ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz;
  const ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
  return new THREE.Box3(new THREE.Vector3(position.x-ex,.015,position.z-ez),new THREE.Vector3(position.x+ex,.79,position.z+ez));
@@ -1134,42 +1135,123 @@ function applyRealCartPushPose(rig, iterations=10) {
   }
 }
 
+function fitCartScaleToBabyGrip() {
+  if (!shoppingCart || !player) return 0;
+  const rig = player.userData.babyRig;
+  const handle = shoppingCart.userData.pushHandle || { y: 0.84, halfWidth: 0.23, x: 0, z: -0.5 };
+  const handleY = Math.max(0.01, handle.y);
+  player.updateWorldMatrix(true, true);
+  let shoulderHeights = [];
+
+  if (rig?.isGLTF) {
+    const chains = getRealCartPushArmChains(rig.visual);
+    rig.cartPushArmChains = chains;
+    for (const chain of chains) {
+      const p = chain.upper.getWorldPosition(new THREE.Vector3());
+      if (Number.isFinite(p.y)) shoulderHeights.push(p.y);
+    }
+  } else if (rig?.arms?.length) {
+    for (const arm of rig.arms) {
+      const p = arm.pivot.getWorldPosition(new THREE.Vector3());
+      if (Number.isFinite(p.y)) shoulderHeights.push(p.y);
+    }
+  }
+
+  let shoulderY;
+  if (shoulderHeights.length) {
+    shoulderY = shoulderHeights.reduce((sum,y)=>sum+y,0)/shoulderHeights.length;
+  } else {
+    rig?.visual?.updateWorldMatrix(true,true);
+    const bounds = new THREE.Box3().setFromObject(rig?.visual || player);
+    shoulderY = bounds.min.y + bounds.getSize(new THREE.Vector3()).y * 0.63;
+  }
+
+  // Alça ligeiramente abaixo da linha dos ombros: essa é uma postura mais natural
+  // para empurrar um carrinho infantil sem obrigar os braços a apontarem para baixo.
+  const targetHandleY = THREE.MathUtils.clamp(shoulderY - 0.075, 0.45, 0.63);
+  const calculatedScale = targetHandleY / handleY;
+  const fittedScale = THREE.MathUtils.clamp(calculatedScale, 0.48, 0.76);
+  shoppingCart.scale.setScalar(fittedScale);
+  shoppingCart.userData.fitScale = fittedScale;
+  shoppingCart.userData.targetHandleY = targetHandleY;
+  shoppingCart.updateWorldMatrix(true,true);
+  console.info("[BabyMarket] Escala do carrinho ajustada pela altura real dos ombros:", {
+    shoulderY: shoulderY.toFixed(3),
+    targetHandleY: targetHandleY.toFixed(3),
+    rawHandleY: handleY.toFixed(3),
+    scale: fittedScale.toFixed(3)
+  });
+  return fittedScale;
+}
+
 function alignBabyToCartAnchorsAndParent() {
   if(!player||!shoppingCart)return false;
   const rig=player.userData.babyRig;
-  if(!rig?.isGLTF) {
-    player.attach(shoppingCart);
-    shoppingCart.userData.attachedToBaby=true;
-    return true;
-  }
-  rig.cartPushArmChains=getRealCartPushArmChains(rig.visual);
-  if(!rig.cartPushArmChains.length) {
-    console.warn("[BabyMarket] Não foi possível encontrar as mãos reais no esqueleto GLB.");
+  if (!shoppingCart.userData.fitScale) fitCartScaleToBabyGrip();
+
+  const handle = shoppingCart.userData.pushHandle || { x:0, y:0.84, z:-0.5, halfWidth:0.23 };
+  const scale = shoppingCart.scale.x;
+  // O carrinho começa alinhado à orientação atual do bebê; depois de anexado, sua
+  // transformação local permanece fixa e o parenting acompanha as curvas automaticamente.
+  cartYaw = player.rotation.y;
+  shoppingCart.rotation.set(0,cartYaw,0);
+  const cartQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(0,cartYaw,0));
+  const forward = new THREE.Vector3(0,0,1).applyQuaternion(
+    player.getWorldQuaternion(new THREE.Quaternion())
+  ).setY(0).normalize();
+
+  const targetRootCandidates = [];
+  if (rig?.isGLTF) {
+    rig.cartPushArmChains = getRealCartPushArmChains(rig.visual);
+    if(!rig.cartPushArmChains.length) {
+      console.warn("[BabyMarket] Não foi possível encontrar as mãos originais no esqueleto GLB.");
+      return false;
+    }
+
+    player.updateWorldMatrix(true,true);
+    rig.visual.updateWorldMatrix(true,true);
+    for(const chain of rig.cartPushArmChains) {
+      const shoulder=chain.upper.getWorldPosition(new THREE.Vector3());
+      const elbow=chain.forearm.getWorldPosition(new THREE.Vector3());
+      const hand=chain.hand.getWorldPosition(new THREE.Vector3());
+      const armLength=shoulder.distanceTo(elbow)+elbow.distanceTo(hand);
+      const reach=THREE.MathUtils.clamp(armLength*0.72,0.20,0.34);
+      // Alvo das mãos à frente do ombro, no mesmo nível vertical do anchor da alça.
+      const targetHand=shoulder.clone().addScaledVector(forward,reach);
+      targetHand.y=shoppingCart.position.y + handle.y*scale;
+      const localAnchor=new THREE.Vector3(
+        (handle.x||0)+chain.side*handle.halfWidth,
+        handle.y,
+        handle.z
+      ).multiplyScalar(scale).applyQuaternion(cartQuaternion);
+      targetRootCandidates.push(targetHand.sub(localAnchor));
+    }
+  } else if(rig?.arms?.length) {
+    player.updateWorldMatrix(true,true);
+    for(const arm of rig.arms) {
+      const shoulder=arm.pivot.getWorldPosition(new THREE.Vector3());
+      const reach=0.25;
+      const targetHand=shoulder.clone().addScaledVector(forward,reach);
+      targetHand.y=shoppingCart.position.y+handle.y*scale;
+      const localAnchor=new THREE.Vector3(
+        (handle.x||0)+arm.side*handle.halfWidth,handle.y,handle.z
+      ).multiplyScalar(scale).applyQuaternion(cartQuaternion);
+      targetRootCandidates.push(targetHand.sub(localAnchor));
+    }
+  } else {
     return false;
   }
 
-  // Offset horizontal inicial calculado pela diferença entre as mãos originais e os anchors.
-  shoppingCart.updateWorldMatrix(true,true);
-  rig.visual.updateWorldMatrix(true,true);
-  const deltas=rig.cartPushArmChains.map(chain=>{
-    const target=shoppingCart.localToWorld(cartHandleAnchorLocal(chain.side));
-    return target.sub(handWorldPosition(chain));
-  });
-  const offset=deltas.reduce((sum,d)=>sum.add(d),new THREE.Vector3()).multiplyScalar(1/deltas.length);
-  offset.y=0;
-  // O alinhamento só corrige poucos centímetros, evitando puxar o tronco contra o carrinho.
-  if(offset.length()>CART_ALIGNMENT_MAX_OFFSET)offset.setLength(CART_ALIGNMENT_MAX_OFFSET);
-  const adjusted=player.position.clone().add(offset);
-  if(canStand(adjusted.x,adjusted.z,player.position.y)) {
-    player.position.x=adjusted.x;
-    player.position.z=adjusted.z;
-  }
-  player.updateWorldMatrix(true,true);
-  applyRealCartPushPose(rig,14);
+  if(!targetRootCandidates.length)return false;
+  const rootPosition=targetRootCandidates.reduce((sum,p)=>sum.add(p),new THREE.Vector3())
+    .multiplyScalar(1/targetRootCandidates.length);
+  // A altura foi escolhida a partir do anchor vertical, então o carrinho mantém as rodas no chão.
+  rootPosition.y=0;
+  shoppingCart.position.copy(rootPosition);
   shoppingCart.updateWorldMatrix(true,true);
 
-  // Preserve world transform, then parent the cart to the baby. The calculated local
-  // transform is the attachment offset; from now on the cart follows player motion.
+  if(rig?.isGLTF)applyRealCartPushPose(rig,18);
+  // Parenting preserva a transformação mundial: a posição resultante vira o offset do carrinho.
   player.attach(shoppingCart);
   shoppingCart.userData.attachedToBaby=true;
   cartPreviousPosition.copy(worldPos(shoppingCart));
@@ -2679,6 +2761,7 @@ function loadScenario() {
 
         function finishScenarioReady(usingFallback) {
           Promise.all([ladderAssetReady, cartAssetReady]).then(([usingCustomLadder, usingOriginalCart]) => {
+            fitCartScaleToBabyGrip();
             camera.position.set(0, 5.5, 13);
             camera.lookAt(0, 0.7, 0);
             updateList();
