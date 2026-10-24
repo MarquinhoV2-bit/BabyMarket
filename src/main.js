@@ -543,6 +543,73 @@ function createProceduralShoppingCart(){
  root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
  scene.add(root);shoppingCart=root;resetShoppingCart();return root;
 }
+function boundsRelativeTo(root, object) {
+  root.updateWorldMatrix(true,true);
+  object.updateWorldMatrix(true,false);
+  const worldBox = new THREE.Box3().setFromObject(object);
+  const result = new THREE.Box3();
+  for (let ix=0; ix<2; ix++) for (let iy=0; iy<2; iy++) for (let iz=0; iz<2; iz++) {
+    const point = new THREE.Vector3(
+      ix ? worldBox.max.x : worldBox.min.x,
+      iy ? worldBox.max.y : worldBox.min.y,
+      iz ? worldBox.max.z : worldBox.min.z
+    );
+    root.worldToLocal(point);
+    result.expandByPoint(point);
+  }
+  return result;
+}
+
+function detectCartPushHandle(model, modelBounds, modelSize) {
+  const candidates = [];
+  const totalVolumeScale = Math.max(0.0001, modelSize.x * modelSize.y * modelSize.z);
+  model.traverse((object) => {
+    if (!object.isMesh || !object.geometry) return;
+    const box = boundsRelativeTo(model, object);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    if (size.x < modelSize.x * 0.30 ||
+        size.y > modelSize.y * 0.20 ||
+        size.z > modelSize.z * 0.30 ||
+        center.y < modelBounds.min.y + modelSize.y * 0.67) return;
+
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const redHandleMaterial = materials.some((material) => {
+      if (!material?.color) return false;
+      const c = material.color;
+      return c.r > 0.42 && c.r > c.g * 1.5 && c.r > c.b * 1.35;
+    });
+    const namedHandle = /handle|grip|pushbar|push_bar|cabo/i.test(object.name || "");
+    const endDistance = Math.min(
+      Math.abs(center.z - modelBounds.min.z),
+      Math.abs(modelBounds.max.z - center.z)
+    ) / Math.max(0.0001,modelSize.z);
+    if (endDistance > 0.28 && !namedHandle) return;
+    const score = (redHandleMaterial ? 8 : 0) + (namedHandle ? 6 : 0) +
+      (size.x/modelSize.x)*3 + ((center.y-modelBounds.min.y)/modelSize.y) -
+      endDistance*3 - (size.y/modelSize.y);
+    candidates.push({ box, size, center, score, redHandleMaterial, name:object.name });
+  });
+  candidates.sort((a,b)=>b.score-a.score);
+  const best = candidates[0];
+  if (best) {
+    console.info("[BabyMarket] Suporte do carrinho identificado:", best.name || "(malha sem nome)");
+    return {
+      x: best.center.x,
+      y: best.center.y,
+      z: best.center.z,
+      halfWidth: Math.min(best.size.x * 0.37, modelSize.x * 0.36)
+    };
+  }
+  // Fallback for exports where the cart is merged into a single mesh.
+  return {
+    x: 0,
+    y: modelBounds.max.y - modelSize.y * 0.075,
+    z: modelBounds.min.z + modelSize.z * 0.025,
+    halfWidth: Math.min(0.27,modelSize.x*0.34)
+  };
+}
+
 function loadShoppingCartAsset() {
   return new Promise((resolve) => {
     const url = new URL("../assets/models/babymarket-cart.glb?v=1", import.meta.url).href;
@@ -572,11 +639,7 @@ function loadShoppingCartAsset() {
           // Redução leve (~5,5%) para melhorar proporção com o bebê.
           root.scale.setScalar(0.85);
           // As mãos miram o centro do cabo estimado a partir das dimensões reais do GLB.
-          root.userData.pushHandle = {
-            y: modelBounds.max.y - modelSize.y * 0.035,
-            z: modelBounds.min.z + modelSize.z * 0.08,
-            halfWidth: Math.min(0.31, Math.max(0.26, modelSize.x * 0.39))
-          };
+          root.userData.pushHandle = detectCartPushHandle(model, modelBounds, modelSize);
           root.add(model);
           root.traverse((object) => {
             if (object.isMesh) {
@@ -1088,26 +1151,27 @@ function updateCartPushOverlay(rig) {
   // anchored near the upper torso rather than letting a skewed bbox pull arms inside.
   const shoulderY = THREE.MathUtils.clamp(center.y + size.y * 0.105, 0.52, 0.72);
   const shoulderZ = center.z + 0.07;
-  const handle = shoppingCart.userData.pushHandle || { y: 0.72, z: -0.5, halfWidth: 0.28 };
+  const handle = shoppingCart.userData.pushHandle || { x:0, y:0.72, z:-0.5, halfWidth:0.23 };
 
   for (const arm of overlay.arms) {
     const side = arm.side;
     const shoulder = new THREE.Vector3(side * shoulderX, shoulderY, shoulderZ);
+    // Each wrist targets the actual detected handle bar, spaced across its width.
     const worldHand = shoppingCart.localToWorld(new THREE.Vector3(
-      side * handle.halfWidth * 0.78, handle.y, handle.z
+      (handle.x || 0) + side * handle.halfWidth, handle.y, handle.z
     ));
     const hand = player.worldToLocal(worldHand.clone());
     // Cotovelo ligeiramente aberto para fora e avançado, evitando que o braço
     // fique oculto atrás do tronco na câmera de terceira pessoa.
     const elbow = shoulder.clone().lerp(hand, 0.49);
-    elbow.x += side * 0.055;
-    elbow.y += 0.035;
-    elbow.z += 0.085;
+    elbow.x += side * 0.045;
+    elbow.y += 0.025;
+    elbow.z += 0.045;
     positionArmSegment(arm.upper, shoulder, elbow);
     positionArmSegment(arm.forearm, elbow, hand);
     arm.hand.position.copy(hand);
-    // Leva visualmente a mão até a parte da frente do cabo para a silhueta ficar legível.
-    arm.hand.position.z += 0.035;
+    // A pequena profundidade posiciona a palma sobre o cabo sem flutuar adiante dele.
+    arm.hand.position.z += 0.012;
   }
 }
 
