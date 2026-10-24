@@ -1023,25 +1023,33 @@ function createCartPushOverlay(rig) {
   const group = new THREE.Group();
   group.name = "Baby_CartPush_VisibleArms";
   group.visible = false;
-  group.renderOrder = 4;
+  group.renderOrder = 100;
   const skinColor = getOverlayMaterial(rig.visual, "skin");
   const sleeveColor = getOverlayMaterial(rig.visual, "sleeve");
-  const skin = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.74, metalness: 0 });
-  const sleeve = new THREE.MeshStandardMaterial({ color: sleeveColor, roughness: 0.72, metalness: 0 });
+  // Materiais sem iluminação e sem teste de profundidade evitam que o braço
+  // auxiliar desapareça dentro da malha skinned ou atrás das grades do carrinho.
+  const skin = new THREE.MeshBasicMaterial({
+    color: skinColor, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide
+  });
+  const sleeve = new THREE.MeshBasicMaterial({
+    color: sleeveColor, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide
+  });
   const arms = [];
   for (const side of [-1, 1]) {
-    const upperGeometry = new THREE.CapsuleGeometry(0.043, 0.12, 4, 8);
-    const foreGeometry = new THREE.CapsuleGeometry(0.032, 0.11, 4, 8);
+    const upperGeometry = new THREE.CapsuleGeometry(0.052, 0.135, 4, 8);
+    const foreGeometry = new THREE.CapsuleGeometry(0.039, 0.125, 4, 8);
     const upper = new THREE.Mesh(upperGeometry, sleeve);
     const forearm = new THREE.Mesh(foreGeometry, skin);
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.047, 12, 10), skin);
-    upper.userData.totalHeight = 0.12 + 0.086;
-    forearm.userData.totalHeight = 0.11 + 0.064;
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), skin);
+    upper.userData.totalHeight = 0.135 + 0.104;
+    forearm.userData.totalHeight = 0.125 + 0.078;
     for (const mesh of [upper, forearm, hand]) {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
-      mesh.renderOrder = 5;
+      mesh.renderOrder = 100;
+      mesh.material.depthTest = false;
+      mesh.material.depthWrite = false;
       group.add(mesh);
     }
     arms.push({ side, upper, forearm, hand });
@@ -1075,9 +1083,11 @@ function updateCartPushOverlay(rig) {
   const bounds = new THREE.Box3().setFromObject(rig.visual);
   const size = bounds.getSize(new THREE.Vector3());
   const center = player.worldToLocal(bounds.getCenter(new THREE.Vector3()));
-  const shoulderX = THREE.MathUtils.clamp(size.x * 0.31, 0.115, 0.175);
-  const shoulderY = center.y + size.y * 0.12;
-  const shoulderZ = center.z + 0.045;
+  const shoulderX = THREE.MathUtils.clamp(size.x * 0.34, 0.13, 0.19);
+  // Local body bounds can include hair and feet asymmetrically. Keep shoulders
+  // anchored near the upper torso rather than letting a skewed bbox pull arms inside.
+  const shoulderY = THREE.MathUtils.clamp(center.y + size.y * 0.105, 0.52, 0.72);
+  const shoulderZ = center.z + 0.07;
   const handle = shoppingCart.userData.pushHandle || { y: 0.72, z: -0.5, halfWidth: 0.28 };
 
   for (const arm of overlay.arms) {
@@ -1089,15 +1099,15 @@ function updateCartPushOverlay(rig) {
     const hand = player.worldToLocal(worldHand.clone());
     // Cotovelo ligeiramente aberto para fora e avançado, evitando que o braço
     // fique oculto atrás do tronco na câmera de terceira pessoa.
-    const elbow = shoulder.clone().lerp(hand, 0.53);
-    elbow.x += side * 0.035;
-    elbow.y += 0.025;
-    elbow.z += 0.045;
+    const elbow = shoulder.clone().lerp(hand, 0.49);
+    elbow.x += side * 0.055;
+    elbow.y += 0.035;
+    elbow.z += 0.085;
     positionArmSegment(arm.upper, shoulder, elbow);
     positionArmSegment(arm.forearm, elbow, hand);
     arm.hand.position.copy(hand);
-    // Evita interseção visual com o cabo: a mão encosta ligeiramente à frente dele.
-    arm.hand.position.z += 0.012;
+    // Leva visualmente a mão até a parte da frente do cabo para a silhueta ficar legível.
+    arm.hand.position.z += 0.035;
   }
 }
 
