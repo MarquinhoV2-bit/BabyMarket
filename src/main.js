@@ -25,6 +25,8 @@ function createCartPushClip(THREE, visual) {
   );
   const staticTimes = new Float32Array([1 / 24, CART_PUSH_DURATION]);
   const tracks = [];
+  const directPoseBones = [];
+  let directHipValues = null;
   let rotationOffset = 0;
   let animatedBones = 0;
   let missingBones = 0;
@@ -60,6 +62,8 @@ function createCartPushClip(THREE, visual) {
       values,
       animated ? THREE.InterpolateLinear : THREE.InterpolateDiscrete
     ));
+    // Keep a direct bone reference as a fallback for GLTF track-name sanitization.
+    directPoseBones.push({ name: boneName, bone, animated, values });
     if (animated) animatedBones++;
   }
 
@@ -75,6 +79,7 @@ function createCartPushClip(THREE, visual) {
         bindPosition.z
       ], frame * 3);
     }
+    directHipValues = { bone: hips, bindPosition, values };
     tracks.push(new THREE.VectorKeyframeTrack("mixamorig:Hips.position", animatedTimes, values));
   }
 
@@ -86,7 +91,55 @@ function createCartPushClip(THREE, visual) {
     animatedBones, tracks: tracks.length, frames: CART_PUSH_FRAMES,
     duration: CART_PUSH_DURATION, missingBones
   });
-  return new THREE.AnimationClip("PushCart", CART_PUSH_DURATION, tracks);
+  const clip = new THREE.AnimationClip("PushCart", CART_PUSH_DURATION, tracks);
+  clip.cartPushPoseData = {
+    bones: directPoseBones,
+    hips: directHipValues,
+    frames: CART_PUSH_FRAMES,
+    duration: CART_PUSH_DURATION
+  };
+  return clip;
+}
+
+function applyCartPushPoseFromSamples(rig) {
+  const action = rig?.actions?.pushCart;
+  const pose = action?.getClip?.().cartPushPoseData;
+  if (!pose?.bones?.length) return false;
+  const duration = pose.duration || CART_PUSH_DURATION;
+  const time = ((action.time % duration) + duration) % duration;
+  const framePosition = (time / duration) * (pose.frames - 1);
+  const frameA = Math.min(pose.frames - 1, Math.floor(framePosition));
+  const frameB = Math.min(pose.frames - 1, frameA + 1);
+  const alpha = framePosition - frameA;
+  const qa = new THREE.Quaternion();
+  const qb = new THREE.Quaternion();
+
+  for (const item of pose.bones) {
+    const { bone, animated, values } = item;
+    if (!bone?.isBone) continue;
+    if (!animated) {
+      bone.quaternion.set(values[0], values[1], values[2], values[3]).normalize();
+      continue;
+    }
+    const ia = frameA * 4;
+    const ib = frameB * 4;
+    qa.set(values[ia], values[ia + 1], values[ia + 2], values[ia + 3]);
+    qb.set(values[ib], values[ib + 1], values[ib + 2], values[ib + 3]);
+    bone.quaternion.copy(qa.slerp(qb, alpha).normalize());
+  }
+
+  if (pose.hips?.bone && pose.hips.values) {
+    const { bone, values } = pose.hips;
+    const ia = frameA * 3;
+    const ib = frameB * 3;
+    bone.position.set(
+      values[ia] + (values[ib] - values[ia]) * alpha,
+      values[ia + 1] + (values[ib + 1] - values[ia + 1]) * alpha,
+      values[ia + 2] + (values[ib + 2] - values[ia + 2]) * alpha
+    );
+  }
+  rig.visual?.updateWorldMatrix(true, true);
+  return true;
 }
 
 // BabyMarket — primeira integração do cenário GLB (protótipo de teste).
@@ -1151,7 +1204,13 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
   rig.mixer.update(dt);
-  if (cartPushing && !rig.actions.pushCart) applyRealCartPushPose(rig);
+  if (cartPushing && rig.actions.pushCart) {
+    // Apply directly to the actual bones after the mixer tick, so the pose remains
+    // visible even if a GLTFLoader version sanitizes bone names in track bindings.
+    applyCartPushPoseFromSamples(rig);
+  } else if (cartPushing) {
+    applyRealCartPushPose(rig);
+  }
 }
 
 function getRealCartPushArmChains(visual) {
