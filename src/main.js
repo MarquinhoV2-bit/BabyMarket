@@ -1,40 +1,82 @@
 import * as THREE from "three";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
-// Extracted push pose from the Tripo GLB; only bone rotations are reused.
-const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:Neck","mixamorig:Head","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand"];
-const CART_PUSH_DATA = "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";
-function createCartPushClip(THREE) {
+// Pose de empurrar extraída do GLB real do Tripo e retargetada para o rig do BabyMarket.
+const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:LeftToeBase","mixamorig:LeftToe_End","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:RightToeBase","mixamorig:RightToe_End","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:LeftHandIndex1","mixamorig:LeftHandIndex2","mixamorig:LeftHandIndex3","mixamorig:LeftHandIndex4","mixamorig:LeftHandMiddle1","mixamorig:LeftHandMiddle2","mixamorig:LeftHandMiddle3","mixamorig:LeftHandMiddle4","mixamorig:LeftHandPinky1","mixamorig:LeftHandPinky2","mixamorig:LeftHandPinky3","mixamorig:LeftHandPinky4","mixamorig:LeftHandRing1","mixamorig:LeftHandRing2","mixamorig:LeftHandRing3","mixamorig:LeftHandRing4","mixamorig:LeftHandThumb1","mixamorig:LeftHandThumb2","mixamorig:LeftHandThumb3","mixamorig:LeftHandThumb4","mixamorig:Neck","mixamorig:Head","mixamorig:HeadTop_End","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand","mixamorig:RightHandIndex1","mixamorig:RightHandIndex2","mixamorig:RightHandIndex3","mixamorig:RightHandIndex4","mixamorig:RightHandMiddle1","mixamorig:RightHandMiddle2","mixamorig:RightHandMiddle3","mixamorig:RightHandMiddle4","mixamorig:RightHandPinky1","mixamorig:RightHandPinky2","mixamorig:RightHandPinky3","mixamorig:RightHandPinky4","mixamorig:RightHandRing1","mixamorig:RightHandRing2","mixamorig:RightHandRing3","mixamorig:RightHandRing4","mixamorig:RightHandThumb1","mixamorig:RightHandThumb2","mixamorig:RightHandThumb3","mixamorig:RightHandThumb4"];
+const CART_PUSH_DYNAMIC_BONES = new Set(["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot"]);
+const CART_PUSH_DATA = "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";
+const CART_PUSH_FRAMES = 48;
+const CART_PUSH_DURATION = 3.5;
+
+function createCartPushClip(THREE, visual) {
   const binary = atob(CART_PUSH_DATA);
-  const packed = new Int8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    const value = binary.charCodeAt(i);
-    packed[i] = value > 127 ? value - 256 : value;
-  }
-  const frames = 32;
-  const duration = 4;
-  const times = new Float32Array(frames);
-  for (let i = 0; i < frames; i++) times[i] = i * duration / (frames - 1);
-  const tracks = [];
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
   let offset = 0;
+
+  function readQuaternion() {
+    const values = [
+      view.getInt16(offset, true) / 32767,
+      view.getInt16(offset + 2, true) / 32767,
+      view.getInt16(offset + 4, true) / 32767,
+      view.getInt16(offset + 6, true) / 32767,
+    ];
+    offset += 8;
+    const q = new THREE.Quaternion(values[0], values[1], values[2], values[3]);
+    return q.normalize();
+  }
+
+  const tracks = [];
+  let missingBones = 0;
   for (const boneName of CART_PUSH_BONES) {
-    const values = new Float32Array(frames * 4);
-    for (let frame = 0; frame < frames; frame++) {
-      let x = packed[offset++] / 127;
-      let y = packed[offset++] / 127;
-      let z = packed[offset++] / 127;
-      let w = packed[offset++] / 127;
-      const length = Math.hypot(x, y, z, w) || 1;
-      x /= length; y /= length; z /= length; w /= length;
-      const index = frame * 4;
-      values[index] = x; values[index + 1] = y;
-      values[index + 2] = z; values[index + 3] = w;
+    const sourceRest = readQuaternion();
+    const frameCount = CART_PUSH_DYNAMIC_BONES.has(boneName) ? CART_PUSH_FRAMES : 1;
+    const sourceFrames = [];
+    for (let frame = 0; frame < frameCount; frame++) sourceFrames.push(readQuaternion());
+
+    const bone = visual.getObjectByName(boneName);
+    if (!bone || !bone.isBone) {
+      missingBones++;
+      continue;
     }
+
+    // Apply the source animation as a delta from its own rest pose onto the existing baby rig.
+    const targetRest = bone.quaternion.clone().normalize();
+    const sourceRestInverse = sourceRest.clone().invert();
+    const values = new Float32Array((frameCount === 1 ? 2 : frameCount) * 4);
+    const sampleCount = frameCount === 1 ? 2 : frameCount;
+    let previous = null;
+    for (let frame = 0; frame < sampleCount; frame++) {
+      const sourcePose = sourceFrames[frameCount === 1 ? 0 : frame];
+      const targetPose = targetRest.clone().multiply(sourceRestInverse).multiply(sourcePose).normalize();
+      if (previous && previous.dot(targetPose) < 0) {
+        targetPose.set(-targetPose.x, -targetPose.y, -targetPose.z, -targetPose.w);
+      }
+      const i = frame * 4;
+      values[i] = targetPose.x;
+      values[i + 1] = targetPose.y;
+      values[i + 2] = targetPose.z;
+      values[i + 3] = targetPose.w;
+      previous = targetPose;
+    }
+
+    const times = frameCount === 1
+      ? new Float32Array([0, CART_PUSH_DURATION])
+      : Float32Array.from({ length: CART_PUSH_FRAMES }, (_, i) => i * CART_PUSH_DURATION / (CART_PUSH_FRAMES - 1));
     tracks.push(new THREE.QuaternionKeyframeTrack(boneName + ".quaternion", times, values));
   }
-  return new THREE.AnimationClip("PushCart", duration, tracks);
-}
 
+  if (offset !== bytes.byteLength) {
+    console.warn("[BabyMarket] Tamanho inesperado dos dados da animação:", offset, bytes.byteLength);
+  }
+  console.info("[BabyMarket] Animação push retargetada:", {
+    tracks: tracks.length,
+    missingBones,
+    duration: CART_PUSH_DURATION,
+    loopingPose: "torso, braços, mãos e dedos estáveis; quadril e pernas em ciclo"
+  });
+  return new THREE.AnimationClip("PushCart", CART_PUSH_DURATION, tracks);
+}
 
 
 // BabyMarket — primeira integração do cenário GLB (protótipo de teste).
@@ -985,7 +1027,7 @@ function createBabyFromGLTF(gltf) {
     if (key && !actions[key]) actions[key] = mixer.clipAction(clip);
   }
 
-  actions.pushCart = mixer.clipAction(createCartPushClip(THREE));
+  actions.pushCart = mixer.clipAction(createCartPushClip(THREE, visual));
 
   if (!actions.idle || !actions.walk) {
     throw new Error("O personagem GLB precisa ter animações de espera e caminhada.");
@@ -1094,7 +1136,7 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   switchBabyClip(rig, desired, playbackDirection);
   if (rig.currentAction && rig.playbackDirection > 0) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
-    if (rig.currentKey === "pushCart") rig.currentAction.setEffectiveTimeScale(moved ? 0.88 + intensity * 0.14 : 0.22);
+    if (rig.currentKey === "pushCart") rig.currentAction.setEffectiveTimeScale(0.94 + intensity * 0.06);
     else if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.58 + intensity * 0.22);
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
@@ -1230,71 +1272,90 @@ function cartHandleAnchorLocal(side) {
 
 function fitCartScaleToBabyGrip() {
   if (!shoppingCart || !player) return 0;
-  const rig=player.userData.babyRig;
-  player.updateWorldMatrix(true,true);
-  rig?.visual?.updateWorldMatrix(true,true);
-  const metrics=getCartGripMetrics(rig);
-  const baseY=shoppingCart.userData.baseModelMinY ?? 0;
-  const centerAnchor=cartHandleAnchorLocal(0);
-  const handleHeightAboveBase=centerAnchor.y-baseY;
-  if(!Number.isFinite(handleHeightAboveBase)||handleHeightAboveBase<=0.01) {
-    console.warn("[BabyMarket] Altura relativa da alça inválida; mantendo escala atual.");
+  player.updateWorldMatrix(true, true);
+  const rig = player.userData.babyRig;
+  rig?.visual?.updateWorldMatrix(true, true);
+  const metrics = getCartGripMetrics(rig);
+  const baseY = shoppingCart.userData.baseModelMinY ?? 0;
+  const centerAnchor = cartHandleAnchorLocal(0);
+  const handleHeightAboveBase = centerAnchor.y - baseY;
+  if (!Number.isFinite(handleHeightAboveBase) || handleHeightAboveBase <= 0.01) {
+    console.warn("[BabyMarket] Altura da alça inválida; mantendo escala.");
     return shoppingCart.scale.x;
   }
 
-  // Alça ligeiramente abaixo dos ombros, no alcance confortável do bebê.
-  const shoulderY=metrics.shoulders.length
-    ? metrics.shoulders.reduce((sum,p)=>sum+p.y,0)/metrics.shoulders.length
-    : 0.62;
-  const targetHandleY=THREE.MathUtils.clamp(shoulderY-0.055,0.46,0.64);
-  const heightScale=targetHandleY/handleHeightAboveBase;
+  const shoulderY = metrics.shoulders.length
+    ? metrics.shoulders.reduce((sum, point) => sum + point.y, 0) / metrics.shoulders.length
+    : 0.67;
+  const targetHandleY = THREE.MathUtils.clamp(shoulderY - 0.12, 0.50, 0.60);
+  const scale = THREE.MathUtils.clamp(targetHandleY / handleHeightAboveBase, 0.25, 0.90);
+  shoppingCart.scale.setScalar(scale);
+  shoppingCart.userData.fitScale = scale;
+  shoppingCart.userData.targetHandleY = targetHandleY;
+  shoppingCart.position.y = -baseY * scale;
+  shoppingCart.updateWorldMatrix(true, true);
+  return scale;
+}
 
-  // Não deixe as duas pontas da alça ficarem mais afastadas do que os braços podem alcançar.
-  const localHalfSpan=Math.max(
-    0.001,
-    cartHandleAnchorLocal(1).distanceTo(centerAnchor)
-  );
-  const comfortableReach=metrics.averageArmLength*0.88;
-  const forwardGap=THREE.MathUtils.clamp(metrics.averageArmLength*0.54,0.15,0.22);
-  const verticalDelta=0.055;
-  const lateralReach=Math.sqrt(Math.max(0,comfortableReach*comfortableReach-forwardGap*forwardGap-verticalDelta*verticalDelta));
-  const maxGripHalfSpan=metrics.halfShoulderSpan+lateralReach;
-  const widthScale=maxGripHalfSpan/localHalfSpan;
-  const fittedScale=THREE.MathUtils.clamp(Math.min(heightScale,widthScale),0.25,1.2);
+function fitCartScaleToPushPose(rig) {
+  if (!shoppingCart || !player || !rig?.cartPushArmChains?.length) return null;
+  player.updateWorldMatrix(true, true);
+  rig.visual?.updateWorldMatrix(true, true);
+
+  const leftChain = rig.cartPushArmChains.find((chain) => chain.side < 0);
+  const rightChain = rig.cartPushArmChains.find((chain) => chain.side > 0);
+  if (!leftChain || !rightChain) return null;
+
+  const leftHand = handWorldPosition(leftChain);
+  const rightHand = handWorldPosition(rightChain);
+  const handMidpoint = leftHand.clone().add(rightHand).multiplyScalar(0.5);
+  const handleLeft = cartHandleAnchorLocal(-1);
+  const handleRight = cartHandleAnchorLocal(1);
+  const handleCenter = cartHandleAnchorLocal(0);
+  const baseY = shoppingCart.userData.baseModelMinY ?? 0;
+  const handleHeight = Math.max(0.01, handleCenter.y - baseY);
+  const handleSpan = Math.max(0.01, handleLeft.distanceTo(handleRight));
+  const handSpan = leftHand.distanceTo(rightHand);
+
+  const heightScale = handMidpoint.y / handleHeight;
+  const spanScale = handSpan / handleSpan;
+  // Height carries a little more weight so the wheels stay on the floor while both
+  // wrists remain close to the two ends of the actual cart handle.
+  const fittedScale = THREE.MathUtils.clamp(heightScale * 0.65 + spanScale * 0.35, 0.25, 0.90);
 
   shoppingCart.scale.setScalar(fittedScale);
-  shoppingCart.userData.fitScale=fittedScale;
-  shoppingCart.userData.targetHandleY=targetHandleY;
-  // Coloca o fundo do GLB no chão, mesmo se a origem do export não estiver nos pés das rodas.
-  shoppingCart.position.y=-baseY*fittedScale;
-  shoppingCart.updateWorldMatrix(true,true);
-  console.info("[BabyMarket] Carrinho calibrado para o alcance das mãos:",{
-    shoulderY:shoulderY.toFixed(3),
-    targetHandleY:targetHandleY.toFixed(3),
-    modelHeight:((shoppingCart.userData.baseModelHeight||0.84)*fittedScale).toFixed(3),
-    scale:fittedScale.toFixed(3),
-    maxGripHalfSpan:maxGripHalfSpan.toFixed(3)
-  });
-  return fittedScale;
+  shoppingCart.userData.fitScale = fittedScale;
+  shoppingCart.userData.targetHandleY = handleHeight * fittedScale;
+  shoppingCart.userData.animationGrip = {
+    handSpan: Number(handSpan.toFixed(3)),
+    handleSpan: Number((handleSpan * fittedScale).toFixed(3)),
+    targetHandY: Number(handMidpoint.y.toFixed(3)),
+    fittedHandleY: Number((handleHeight * fittedScale).toFixed(3)),
+    heightScale: Number(heightScale.toFixed(3)),
+    spanScale: Number(spanScale.toFixed(3)),
+    scale: Number(fittedScale.toFixed(3))
+  };
+  shoppingCart.position.y = -baseY * fittedScale;
+  shoppingCart.updateWorldMatrix(true, true);
+  console.info("[BabyMarket] Escala do carrinho ajustada à pose de empurrar:", shoppingCart.userData.animationGrip);
+  return { leftHand, rightHand, handMidpoint, handleCenter, fittedScale };
 }
 
 function alignBabyToCartAnchorsAndParent() {
-  if(!player||!shoppingCart)return false;
-  const rig=player.userData.babyRig;
+  if (!player || !shoppingCart) return false;
+  const rig = player.userData.babyRig;
   restoreCartPushAnimationBase(rig);
-  // Recalcula no momento da pegada, quando o rig completo do bebê já está carregado.
-  fitCartScaleToBabyGrip();
 
-  if(rig?.isGLTF) {
-    rig.cartPushArmChains=getRealCartPushArmChains(rig.visual);
-    if(!rig.cartPushArmChains.length) {
-      console.warn("[BabyMarket] Não encontrei as cadeias de braço e mão originais do bebê.");
+  if (rig?.isGLTF) {
+    rig.cartPushArmChains = getRealCartPushArmChains(rig.visual);
+    if (rig.cartPushArmChains.length < 2) {
+      console.warn("[BabyMarket] Não encontrei as duas cadeias originais de mãos para empurrar.");
       return false;
     }
-  } else if(!rig?.arms?.length) return false;
+  } else if (!rig?.arms?.length) {
+    return false;
+  }
 
-  // Start the imported push pose before positioning the cart, so the handle is aligned
-  // to the actual animated hands rather than to an estimated shoulder position.
   if (rig?.isGLTF && rig.actions.pushCart) {
     rig.mixer.stopAllAction();
     const pushAction = rig.actions.pushCart;
@@ -1302,55 +1363,66 @@ function alignBabyToCartAnchorsAndParent() {
     pushAction.enabled = true;
     pushAction.setLoop(THREE.LoopRepeat, Infinity);
     pushAction.clampWhenFinished = false;
-    pushAction.setEffectiveTimeScale(1);
+    pushAction.setEffectiveTimeScale(0.94);
     pushAction.setEffectiveWeight(1);
     pushAction.play();
-    pushAction.time = 0;
     rig.currentAction = pushAction;
     rig.currentKey = "pushCart";
     rig.playbackDirection = 1;
     rig.mixer.update(0);
   }
 
-  player.updateWorldMatrix(true,true);
-  rig?.visual?.updateWorldMatrix(true,true);
-  const metrics=getCartGripMetrics(rig);
-  const forward=new THREE.Vector3(0,0,1)
-    .applyQuaternion(player.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
-  const targetHandleY=shoppingCart.userData.targetHandleY ??
-    THREE.MathUtils.clamp(metrics.center.y-0.055,0.46,0.64);
-  const forwardGap=THREE.MathUtils.clamp(metrics.averageArmLength*0.54,0.15,0.22);
-  const desiredHandleCenter=metrics.center.clone().addScaledVector(forward,forwardGap);
-  if (rig?.isGLTF && rig.actions.pushCart && rig.cartPushArmChains?.length >= 2) {
-    const hands = rig.cartPushArmChains.map(handWorldPosition);
-    if (hands.length >= 2) {
-      const handsMidpoint = hands.reduce((sum, p) => sum.add(p), new THREE.Vector3())
-        .multiplyScalar(1 / hands.length);
-      desiredHandleCenter.x = handsMidpoint.x;
-      desiredHandleCenter.z = handsMidpoint.z;
-    }
-  }
-  desiredHandleCenter.y=targetHandleY;
+  player.updateWorldMatrix(true, true);
+  rig?.visual?.updateWorldMatrix(true, true);
 
-  const cartYaw=player.rotation.y;
-  shoppingCart.rotation.set(0,cartYaw,0);
-  const localCenter=cartHandleAnchorLocal(0).multiplyScalar(shoppingCart.scale.x)
-    .applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0,cartYaw,0)));
-  shoppingCart.position.x=desiredHandleCenter.x-localCenter.x;
-  shoppingCart.position.z=desiredHandleCenter.z-localCenter.z;
-  const baseY=shoppingCart.userData.baseModelMinY??0;
-  shoppingCart.position.y=-baseY*shoppingCart.scale.y;
-  shoppingCart.updateWorldMatrix(true,true);
+  const pushFit = rig?.isGLTF && rig.actions.pushCart
+    ? fitCartScaleToPushPose(rig)
+    : null;
+  if (!pushFit) fitCartScaleToBabyGrip();
 
-  // IK uses the original skeleton's two chains: left hand -> left endpoint,
-  // right hand -> right endpoint. No surrogate meshes or hands are created.
-  if (rig?.isGLTF && !rig.actions.pushCart) applyRealCartPushPose(rig,18);
+  player.updateWorldMatrix(true, true);
+  rig?.visual?.updateWorldMatrix(true, true);
+  const metrics = getCartGripMetrics(rig);
+  const forward = new THREE.Vector3(0, 0, 1)
+    .applyQuaternion(player.getWorldQuaternion(new THREE.Quaternion()))
+    .setY(0).normalize();
+  const forwardGap = THREE.MathUtils.clamp(metrics.averageArmLength * 0.48, 0.12, 0.19);
+  const desiredHandleCenter = pushFit
+    ? pushFit.handMidpoint.clone()
+    : metrics.center.clone().addScaledVector(forward, forwardGap);
+  const cartYaw = player.rotation.y;
+  shoppingCart.rotation.set(0, cartYaw, 0);
+
+  const localCenter = cartHandleAnchorLocal(0).multiplyScalar(shoppingCart.scale.x)
+    .applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, cartYaw, 0)));
+  shoppingCart.position.x = desiredHandleCenter.x - localCenter.x;
+  shoppingCart.position.z = desiredHandleCenter.z - localCenter.z;
+  const baseY = shoppingCart.userData.baseModelMinY ?? 0;
+  shoppingCart.position.y = -baseY * shoppingCart.scale.y;
+  shoppingCart.updateWorldMatrix(true, true);
+
+  // Fallback path still uses the original baby's arms and IK; no surrogate limbs are created.
+  if (rig?.isGLTF && !rig.actions.pushCart) applyRealCartPushPose(rig, 18);
   player.attach(shoppingCart);
-  shoppingCart.userData.attachedToBaby=true;
+  shoppingCart.userData.attachedToBaby = true;
   cartPreviousPosition.copy(worldPos(shoppingCart));
+
+  const leftChain = rig?.cartPushArmChains?.find((chain) => chain.side < 0);
+  const rightChain = rig?.cartPushArmChains?.find((chain) => chain.side > 0);
+  if (leftChain && rightChain) {
+    const left = handWorldPosition(leftChain);
+    const right = handWorldPosition(rightChain);
+    const actualHandleLeft = shoppingCart.localToWorld(cartHandleAnchorLocal(-1).multiplyScalar(shoppingCart.scale.x));
+    const actualHandleRight = shoppingCart.localToWorld(cartHandleAnchorLocal(1).multiplyScalar(shoppingCart.scale.x));
+    console.info("[BabyMarket] Conferência da pegada:", {
+      leftHandError: Number(left.distanceTo(actualHandleLeft).toFixed(3)),
+      rightHandError: Number(right.distanceTo(actualHandleRight).toFixed(3)),
+      scale: Number(shoppingCart.scale.x.toFixed(3)),
+      animation: rig.currentKey
+    });
+  }
   return true;
 }
-
 function releaseCartParent() {
   if(!shoppingCart||shoppingCart.parent===scene)return;
   scene.attach(shoppingCart);
