@@ -319,6 +319,12 @@ let cartPushing = false;
 let cartYaw = Math.PI;
 const cartWheelPivots = [];
 const CART_PUSH_SPEED = 1.28;
+const CART_BODY_HALF_X = 0.37;
+const CART_BODY_HALF_Z = 0.46;
+let cartVelocity = new THREE.Vector3();
+let cartLastPushVelocity = new THREE.Vector3();
+let cartPreviousPosition = new THREE.Vector3();
+let cartHadPushMotion = false;
 let portableLadder = null;
 let ladderDropZone = null;
 let startPosition = new THREE.Vector3(0, 0, 5.45);
@@ -589,22 +595,49 @@ function loadShoppingCartAsset() {
 
 function resetShoppingCart(){
  if(!shoppingCart)return;
- cartPushing=false;cartYaw=Math.PI;shoppingCart.rotation.set(0,cartYaw,0);
+ cartPushing=false;cartYaw=Math.PI;cartVelocity.set(0,0,0);cartLastPushVelocity.set(0,0,0);cartHadPushMotion=false;
+ shoppingCart.rotation.set(0,cartYaw,0);
  shoppingCart.position.set(startPosition.x,0,startPosition.z-.78);shoppingCart.visible=true;
+ cartPreviousPosition.copy(shoppingCart.position);
  cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
+}
+function cartWorldBox(position=shoppingCart?.position,yaw=shoppingCart?.rotation.y??cartYaw){
+ const hx=CART_BODY_HALF_X,hz=CART_BODY_HALF_Z;
+ const ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz;
+ const ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
+ return new THREE.Box3(new THREE.Vector3(position.x-ex,.015,position.z-ez),new THREE.Vector3(position.x+ex,.91,position.z+ez));
 }
 function cartCanStandForPlayer(x,z,yaw){
  if(!shoppingCart||!colliderBoxes.length)return true;
- const hx=.37,hz=.46,ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz,ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
  const cx=x+Math.sin(yaw)*.78,cz=z+Math.cos(yaw)*.78;
- const box=new THREE.Box3(new THREE.Vector3(cx-ex,.015,cz-ez),new THREE.Vector3(cx+ex,.91,cz+ez));
+ const box=cartWorldBox(new THREE.Vector3(cx,0,cz),yaw);
  return !colliderBoxes.some(entry=>box.intersectsBox(entry.box));
 }
+function cartBlockedAt(position,yaw){
+ const box=cartWorldBox(position,yaw);
+ return colliderBoxes.some(entry=>box.intersectsBox(entry.box));
+}
 function updateShoppingCart(dt,movedDistance=0){
- if(!shoppingCart||!player||!cartPushing)return;
- shoppingCart.rotation.y=cartYaw;
- shoppingCart.position.set(player.position.x+Math.sin(cartYaw)*.78,0,player.position.z+Math.cos(cartYaw)*.78);
- if(movedDistance>.00001){const spin=movedDistance/.095;for(const pivot of cartWheelPivots)pivot.rotation.x-=spin;}
+ if(!shoppingCart||!player)return;
+ if(cartPushing){
+   shoppingCart.rotation.y=cartYaw;
+   shoppingCart.position.set(player.position.x+Math.sin(cartYaw)*.78,0,player.position.z+Math.cos(cartYaw)*.78);
+   if(dt>0 && movedDistance>.00001){
+     cartVelocity.set((shoppingCart.position.x-cartPreviousPosition.x)/dt,0,(shoppingCart.position.z-cartPreviousPosition.z)/dt);
+     cartLastPushVelocity.copy(cartVelocity);cartHadPushMotion=true;
+     for(const pivot of cartWheelPivots)pivot.rotation.x-=movedDistance/.095;
+   } else if(dt>0) cartVelocity.set(0,0,0);
+ } else if(dt>0 && cartVelocity.lengthSq()>.0004){
+   const current=shoppingCart.position.clone(),next=current.clone().addScaledVector(cartVelocity,dt);next.y=0;
+   if(cartBlockedAt(next,shoppingCart.rotation.y))cartVelocity.set(0,0,0);
+   else {
+     shoppingCart.position.copy(next);
+     for(const pivot of cartWheelPivots)pivot.rotation.x-=current.distanceTo(next)/.095;
+     cartVelocity.multiplyScalar(Math.exp(-1.25*dt));
+   }
+   if(cartVelocity.lengthSq()<.0004)cartVelocity.set(0,0,0);
+ }
+ cartPreviousPosition.copy(shoppingCart.position);
 }
 
 function createBaby() {
@@ -929,12 +962,28 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   }
 
   switchBabyClip(rig, desired, playbackDirection);
+  if (cartPushing) desired = moved && rig.actions.walk ? "walk" : "idle";
+  switchBabyClip(rig, desired, playbackDirection);
   if (rig.currentAction && rig.playbackDirection > 0) {
     const intensity = THREE.MathUtils.clamp(player.userData.moveIntensity ?? 0.5, 0.2, 1);
     if (rig.currentKey === "walk") rig.currentAction.setEffectiveTimeScale(0.58 + intensity * 0.22);
     else if (rig.currentKey === "run") rig.currentAction.setEffectiveTimeScale(0.82 + intensity * 0.28);
   }
   rig.mixer.update(dt);
+  if (cartPushing) {
+    // Sobreposição leve da pose de empurrar no rig GLB: ombros/braços à frente.
+    rig.visual.traverse((bone) => {
+      if (!bone.isBone) return;
+      const n=bone.name.toLowerCase();
+      if (/leftarm|rightarm|leftshoulder|rightshoulder|upperarm/.test(n)) {
+        bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,-0.68,0.22);
+        if (/left/.test(n)) bone.rotation.z=THREE.MathUtils.lerp(bone.rotation.z,-0.25,0.22);
+        if (/right/.test(n)) bone.rotation.z=THREE.MathUtils.lerp(bone.rotation.z,0.25,0.22);
+      }
+      if (/leftforearm|rightforearm|lowerarm/.test(n))
+        bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,-0.32,0.22);
+    });
+  }
 }
 
 function makeBox(obj) {
@@ -952,6 +1001,8 @@ function canStand(x, z, y = player.position.y) {
       continue;
     if (pbox.intersectsBox(b)) return false;
   }
+  if (shoppingCart && shoppingCart.visible && !cartPushing && y < 0.8 &&
+      pbox.intersectsBox(cartWorldBox())) return false;
   if (ladderPlaced && portableLadder && !climbing) {
     portableLadder.updateWorldMatrix(true, true);
     if (pbox.intersectsBox(new THREE.Box3().setFromObject(portableLadder)))
@@ -1542,11 +1593,15 @@ function interact() {
     return;
   }
   if (cartPushing) {
-    cartPushing=false;
-    setInteractionHighlight(null);
-    message("Carrinho solto! Agora você pode correr. Aproxime-se para pegá-lo novamente.");
-    updatePrompt();
-    return;
+    // Soltar sem interromper o analógico: conserva a velocidade de empurrão.
+    if (cartVelocity.length() < 0.12 && cartHadPushMotion) cartVelocity.copy(cartLastPushVelocity);
+    if (cartVelocity.length() < 0.2) {
+      cartVelocity.set(Math.sin(cartYaw),0,Math.cos(cartYaw)).multiplyScalar(CART_PUSH_SPEED * 0.72);
+    }
+    cartPushing=false;cartHadPushMotion=false;cartPreviousPosition.copy(shoppingCart.position);
+    setInteractionHighlight(null);updateJumpButtonState();
+    message("Carrinho solto! Ele continuará rolando e desacelerará aos poucos.");
+    updatePrompt();return;
   }
   if (shoppingCart && distXZ(player.position, shoppingCart.position) <= 1.45 && !ladderCarried) {
     cartPushing=true;
@@ -1786,6 +1841,7 @@ function updateJumpButtonState() {
     !!player &&
     !climbing &&
     !ladderCarried &&
+    !cartPushing &&
     !jumpActive
   );
 }
@@ -1797,6 +1853,7 @@ function startJump() {
     climbing ||
     climbTraversal ||
     ladderCarried ||
+    cartPushing ||
     jumpActive ||
     player.position.y > 0.03
   ) return false;
@@ -1934,6 +1991,7 @@ function updateBabyAnimation(dt, moved) {
 
   const blend = rig.walkBlend;
   const climbBlend = climbing && state === "PLAYING" ? 1 : 0;
+  const pushBlend = cartPushing ? 1 : 0;
   const baseStrideRate = ladderCarried ? 7.1 : 9.4;
   const strideRate = !isWalking
     ? baseStrideRate * 0.72
@@ -1961,10 +2019,9 @@ function updateBabyAnimation(dt, moved) {
     rig.actionType === "disappointed" ? 0.18 : 0;
 
   rig.torso.rotation.x =
-    -0.045 * blend +
+    -0.045 * blend - 0.10 * pushBlend +
     Math.sin(rig.clock * 1.4) * 0.012 * (1 - blend) -
-    forwardLean * actionStrength -
-    0.10 * climbBlend;
+    forwardLean * actionStrength - 0.10 * climbBlend;
 
   rig.headPivot.rotation.x =
     0.025 * Math.sin(rig.clock * 1.25) +
@@ -2008,14 +2065,14 @@ function updateBabyAnimation(dt, moved) {
       rig.actionType === "climbDown" ? 0.58 : 0;
 
     arm.pivot.rotation.x =
-      -armStep * 0.38 * blend +
+      -armStep * 0.38 * blend * (1-pushBlend) +
       Math.sin(rig.clock * 1.3 + phaseOffset) * 0.018 * (1 - blend) -
-      reach * actionStrength * actionArmWeight -
+      0.98 * pushBlend - reach * actionStrength * actionArmWeight -
       climbStep * 0.66 * climbBlend;
     arm.pivot.rotation.z =
-      arm.side * 0.015 * blend +
+      arm.side * 0.015 * blend * (1-pushBlend) +
       arm.side * 0.14 * actionStrength * actionArmWeight +
-      arm.side * 1.05 * celebrationStrength;
+      arm.side * 0.38 * pushBlend + arm.side * 1.05 * celebrationStrength;
   }
 }
 
@@ -2184,7 +2241,14 @@ function setupControls() {
   renderer.domElement.addEventListener("pointercancel", endCameraDrag);
   renderer.domElement.addEventListener("lostpointercapture", endCameraDrag);
 
-  interactButton.addEventListener("click", (e) => { e.preventDefault(); interact(); });
+  // Pointerdown não espera o click terminar; permite soltar enquanto outro dedo move o analógico.
+  interactButton.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();e.stopPropagation();interact();
+  });
+  interactButton.addEventListener("click", (e) => {
+    e.preventDefault();if (e.detail === 0) interact();
+  });
   // Dispara no pointerdown para funcionar também com um dedo segurando o
   // analógico e outro tocando PULAR; não depende da síntese posterior de click.
   jumpButton.addEventListener("pointerdown", (e) => {
