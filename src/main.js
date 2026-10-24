@@ -314,6 +314,11 @@ let lastCameraY = 0;
 
 let environment = null;
 let player = null;
+let shoppingCart = null;
+let cartPushing = false;
+let cartYaw = Math.PI;
+const cartWheelPivots = [];
+const CART_PUSH_SPEED = 1.28;
 let portableLadder = null;
 let ladderDropZone = null;
 let startPosition = new THREE.Vector3(0, 0, 5.45);
@@ -451,6 +456,155 @@ function showAction(label) {
 function hideAction() {
   interactButton.disabled = true;
   interactButton.textContent = "INTERAGIR";
+}
+
+
+function addCartBar(parent,a,b,radius,material,segments=8){
+ const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b),dir=new THREE.Vector3().subVectors(end,start),length=dir.length();
+ if(length<0.0001)return null;
+ const mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,length,segments),material);
+ mesh.position.copy(start).add(end).multiplyScalar(0.5);
+ mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),dir.normalize());
+ mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;
+}
+function addCartAxialCylinder(parent,radius,depth,x,y,z,material,segments=20){
+ const mesh=new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,depth,segments),material);
+ mesh.rotation.z=Math.PI/2;mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;
+}
+function createProceduralShoppingCart(){
+ const root=new THREE.Group();root.name="BabyMarket_ShoppingCart";root.userData.isShoppingCart=true;
+ const silver=new THREE.MeshStandardMaterial({color:0x9aa6b7,metalness:0.72,roughness:0.3});
+ const brightSilver=new THREE.MeshStandardMaterial({color:0xd7e0eb,metalness:0.65,roughness:0.27});
+ const red=new THREE.MeshStandardMaterial({color:0xf52f38,roughness:0.3});
+ const yellow=new THREE.MeshStandardMaterial({color:0xffc928,roughness:0.35});
+ const blue=new THREE.MeshStandardMaterial({color:0x1674f8,roughness:0.34});
+ const rubber=new THREE.MeshStandardMaterial({color:0x202633,roughness:0.82});
+ const darkRed=new THREE.MeshStandardMaterial({color:0xd91f31,roughness:0.38});
+ const frame=[
+ [[-.30,.22,-.39],[-.30,.22,.40]],[[.30,.22,-.39],[.30,.22,.40]],
+ [[-.30,.22,-.39],[.30,.22,-.39]],[[-.30,.22,.40],[.30,.22,.40]],
+ [[-.30,.22,-.39],[-.30,.08,-.48]],[[.30,.22,-.39],[.30,.08,-.48]],
+ [[-.30,.08,-.48],[.30,.08,-.48]],[[-.30,.08,.43],[.30,.08,.43]]
+ ];
+ frame.forEach(([a,b])=>addCartBar(root,a,b,.018,brightSilver,10));
+ const levels=[.72,.57,.43,.32];
+ for(const y of levels){
+  const taper=y===.72?1:.78+(y-.32)*.42,w=.285*taper;
+  const zb=-.39+(.72-y)*.12,zf=.39-(.72-y)*.12,r=y===.72?.018:.012;
+  addCartBar(root,[-w,y,zb],[w,y,zb],r,brightSilver,8);addCartBar(root,[-w,y,zf],[w,y,zf],r,brightSilver,8);
+  addCartBar(root,[-w,y,zb],[-w,y,zf],r,brightSilver,8);addCartBar(root,[w,y,zb],[w,y,zf],r,brightSilver,8);
+ }
+ for(let i=0;i<9;i++){
+  const x=-.225+i*.05625;
+  addCartBar(root,[x,.32,-.34],[x,.72,-.39],.0085,silver,7);
+  addCartBar(root,[x,.32,.34],[x,.72,.39],.0085,silver,7);
+ }
+ for(let i=0;i<9;i++){
+  const z=-.32+i*.08;
+  addCartBar(root,[-.23,.32,z],[-.285,.72,z],.0085,silver,7);
+  addCartBar(root,[.23,.32,z],[.285,.72,z],.0085,silver,7);
+ }
+ for(const y of [.43,.57])for(let i=0;i<8;i++){const x=-.22+i*.063;addCartBar(root,[x,y,-.36],[x,y,.36],.008,silver,7);}
+ const bumperGeo=new THREE.BoxGeometry(.105,.105,.105);
+ for(const x of [-.29,.29])for(const z of [-.39,.39]){
+  const bumper=new THREE.Mesh(bumperGeo,(x*z>0)?blue:yellow);bumper.position.set(x,.34,z);bumper.castShadow=true;root.add(bumper);
+ }
+ addCartBar(root,[-.24,.69,-.37],[-.31,.84,-.57],.022,brightSilver,10);
+ addCartBar(root,[.24,.69,-.37],[.31,.84,-.57],.022,brightSilver,10);
+ addCartBar(root,[-.31,.84,-.57],[.31,.84,-.57],.052,red,16);
+ for(const x of [-.31,.31]){
+  const cap=new THREE.Mesh(new THREE.SphereGeometry(.064,14,10),red);cap.position.set(x,.84,-.57);cap.castShadow=true;root.add(cap);
+  const button=new THREE.Mesh(new THREE.CylinderGeometry(.026,.026,.012,16),yellow);button.rotation.z=Math.PI/2;button.position.set(x+(x<0?-.058:.058),.84,-.57);root.add(button);
+ }
+ const seat=new THREE.Mesh(new THREE.BoxGeometry(.29,.17,.025),red);seat.position.set(0,.49,-.29);seat.rotation.x=-.08;seat.castShadow=true;root.add(seat);
+ cartWheelPivots.length=0;
+ const wheelDefs=[["WheelRoll_FrontLeft",-.31,.095,.34],["WheelRoll_FrontRight",.31,.095,.34],["WheelRoll_RearRight",.31,.095,-.35],["WheelRoll_RearLeft",-.31,.095,-.35]];
+ for(const [name,x,y,z] of wheelDefs){
+  const pivot=new THREE.Group();pivot.name=name;pivot.position.set(x,y,z);pivot.userData.radius=.095;root.add(pivot);
+  const tire=new THREE.Mesh(new THREE.CylinderGeometry(.095,.095,.075,24),rubber);tire.rotation.z=Math.PI/2;tire.castShadow=true;tire.receiveShadow=true;pivot.add(tire);
+  for(const side of [-1,1]){
+   addCartAxialCylinder(pivot,.062,.009,side*.041,0,0,darkRed,24);
+   addCartAxialCylinder(pivot,.046,.012,side*.047,0,0,red,24);
+   addCartAxialCylinder(pivot,.022,.014,side*.054,0,0,yellow,20);
+  }
+  addCartBar(root,[x,.18,z],[x,.115,z+.065],.018,silver,10);
+  addCartBar(root,[x,.18,z],[x,.115,z-.065],.018,silver,10);
+  const swivel=new THREE.Mesh(new THREE.CylinderGeometry(.035,.035,.018,16),yellow);swivel.position.set(x,.205,z);root.add(swivel);
+  cartWheelPivots.push(pivot);
+ }
+ root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
+ scene.add(root);shoppingCart=root;resetShoppingCart();return root;
+}
+function loadShoppingCartAsset() {
+  return new Promise((resolve) => {
+    const url = new URL("../assets/models/babymarket-cart.glb?v=1", import.meta.url).href;
+    new GLTFLoader().load(
+      url,
+      (gltf) => {
+        try {
+          const model = gltf.scene;
+          model.name = "CartRoot_OriginalTripo";
+          const requiredWheelNames = ["tripo_part_1", "tripo_part_4", "tripo_part_5", "tripo_part_6"];
+          const wheelNodes = requiredWheelNames.map((name) => model.getObjectByName(name));
+          if (wheelNodes.some((node) => !node))
+            throw new Error("O GLB não contém as quatro peças de roda esperadas.");
+
+          // Mantemos o GLB original e suas peças separadas. Como cada peça de roda
+          // também contém parte do suporte, não giramos a peça inteira para evitar deformação visual.
+          const root = new THREE.Group();
+          root.name = "BabyMarket_ShoppingCart";
+          root.userData.isShoppingCart = true;
+          root.userData.source = "Tripo original";
+          root.userData.wheelNodeNames = requiredWheelNames.slice();
+          root.scale.setScalar(0.9);
+          root.add(model);
+          root.traverse((object) => {
+            if (object.isMesh) {
+              object.castShadow = true;
+              object.receiveShadow = true;
+              object.frustumCulled = true;
+            }
+          });
+          cartWheelPivots.length = 0;
+          scene.add(root);
+          shoppingCart = root;
+          resetShoppingCart();
+          console.info("[BabyMarket] Carrinho original da Tripo carregado; 4 peças de roda identificadas.");
+          resolve(true);
+        } catch (error) {
+          console.error("[BabyMarket] Falha ao preparar o carrinho original da Tripo.", error);
+          createProceduralShoppingCart();
+          resolve(false);
+        }
+      },
+      undefined,
+      (error) => {
+        console.error("[BabyMarket] GLB do carrinho não encontrado; usando fallback provisório.", error);
+        createProceduralShoppingCart();
+        resolve(false);
+      }
+    );
+  });
+}
+
+function resetShoppingCart(){
+ if(!shoppingCart)return;
+ cartPushing=false;cartYaw=Math.PI;shoppingCart.rotation.set(0,cartYaw,0);
+ shoppingCart.position.set(startPosition.x,0,startPosition.z-.78);shoppingCart.visible=true;
+ cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
+}
+function cartCanStandForPlayer(x,z,yaw){
+ if(!shoppingCart||!colliderBoxes.length)return true;
+ const hx=.37,hz=.46,ex=Math.abs(Math.cos(yaw))*hx+Math.abs(Math.sin(yaw))*hz,ez=Math.abs(Math.sin(yaw))*hx+Math.abs(Math.cos(yaw))*hz;
+ const cx=x+Math.sin(yaw)*.78,cz=z+Math.cos(yaw)*.78;
+ const box=new THREE.Box3(new THREE.Vector3(cx-ex,.015,cz-ez),new THREE.Vector3(cx+ex,.91,cz+ez));
+ return !colliderBoxes.some(entry=>box.intersectsBox(entry.box));
+}
+function updateShoppingCart(dt,movedDistance=0){
+ if(!shoppingCart||!player||!cartPushing)return;
+ shoppingCart.rotation.y=cartYaw;
+ shoppingCart.position.set(player.position.x+Math.sin(cartYaw)*.78,0,player.position.z+Math.cos(cartYaw)*.78);
+ if(movedDistance>.00001){const spin=movedDistance/.095;for(const pivot of cartWheelPivots)pivot.rotation.x-=spin;}
 }
 
 function createBaby() {
@@ -1029,6 +1183,18 @@ function updatePrompt() {
     return;
   }
 
+  if (cartPushing) {
+    setInteractionHighlight(shoppingCart, 0x38bdf8);
+    message("Empurrando o carrinho. Solte-o para correr mais rápido.");
+    showAction("LARGAR CARRINHO");
+    return;
+  }
+  if (shoppingCart && distXZ(player.position, shoppingCart.position) <= 1.45) {
+    setInteractionHighlight(shoppingCart, 0xfbbf24);
+    message("Seu carrinho está aqui. Pegue-o para levar suas compras.");
+    showAction("EMPURRAR CARRINHO");
+    return;
+  }
   const item = lowItemNear();
   if (item) {
     setInteractionHighlight(item.object, 0xfbbf24);
@@ -1375,6 +1541,22 @@ function interact() {
     updatePrompt();
     return;
   }
+  if (cartPushing) {
+    cartPushing=false;
+    setInteractionHighlight(null);
+    message("Carrinho solto! Agora você pode correr. Aproxime-se para pegá-lo novamente.");
+    updatePrompt();
+    return;
+  }
+  if (shoppingCart && distXZ(player.position, shoppingCart.position) <= 1.45 && !ladderCarried) {
+    cartPushing=true;
+    cartYaw=Math.PI;
+    player.rotation.y=player.userData.babyRig?.isGLTF ? cartYaw : 0;
+    updateShoppingCart(0,0);
+    message("Você está empurrando o carrinho. Solte-o para correr mais rápido.");
+    updatePrompt();
+    return;
+  }
   if (ladderCarried) {
     if (distXZ(player.position, ladderDropPosition) <= 1.22) {
       environment.attach(portableLadder);
@@ -1449,6 +1631,7 @@ async function startGame() {
   const session = ++countdownId;
   resetLadder();
   resetItems();
+  resetShoppingCart();
   jumpActive = false;
   jumpVelocity = 0;
   player.position.copy(startPosition);
@@ -1564,6 +1747,9 @@ function movePlayer(dt) {
     // Keep the existing speed while carrying the ladder.
     const minimumCarrySpeed = LADDER_SPEED * 0.7;
     speed = minimumCarrySpeed + (LADDER_SPEED - minimumCarrySpeed) * moveIntensity;
+  } else if (cartPushing) {
+    // Empurrar limita a velocidade; ao soltar, a corrida normal é restaurada.
+    speed = Math.min(CART_PUSH_SPEED, 0.65 + moveIntensity * 0.63);
   } else if (moveIntensity >= 0.84) {
     // Full-tilt running keeps its previously approved speed.
     speed = MOVE_SPEED;
@@ -1574,9 +1760,15 @@ function movePlayer(dt) {
   }
   const nx = player.position.x + dx * speed * dt;
   const nz = player.position.z + dz * speed * dt;
-  if (canStand(nx, player.position.z)) player.position.x = nx;
-  if (canStand(player.position.x, nz)) player.position.z = nz;
+  const desiredYaw = Math.atan2(dx, dz);
+  if (canStand(nx, player.position.z) &&
+      (!cartPushing || cartCanStandForPlayer(nx, player.position.z, desiredYaw)))
+    player.position.x = nx;
+  if (canStand(player.position.x, nz) &&
+      (!cartPushing || cartCanStandForPlayer(player.position.x, nz, desiredYaw)))
+    player.position.z = nz;
   player.userData.moveIntensity = moveIntensity;
+  cartYaw = Math.atan2(dx, dz);
   if (!ladderCarried) {
     // O modelo GLB do bebê tem o rosto voltado para +Z; o protótipo antigo
     // olha para -Z. Calcular a rotação conforme a orientação de cada rig
@@ -2199,6 +2391,7 @@ function loadScenario() {
         ];
         // O fallback visual fica disponível caso o novo GLB não carregue.
         const ladderAssetReady = loadPortableLadderAsset();
+        const cartAssetReady = loadShoppingCartAsset();
         const fallbackPlayer = createBaby();
         fallbackPlayer.visible = false;
         fallbackPlayer.position.copy(startPosition);
@@ -2206,7 +2399,7 @@ function loadScenario() {
         scene.add(fallbackPlayer);
 
         function finishScenarioReady(usingFallback) {
-          ladderAssetReady.then((usingCustomLadder) => {
+          Promise.all([ladderAssetReady, cartAssetReady]).then(([usingCustomLadder, usingOriginalCart]) => {
             camera.position.set(0, 5.5, 13);
             camera.lookAt(0, 0.7, 0);
             updateList();
@@ -2216,7 +2409,9 @@ function loadScenario() {
               ? "O cenário está pronto, mas o bebê 3D não carregou. Vamos usar o personagem provisório."
               : (!usingCustomLadder
                 ? "O bebê 3D carregou, mas a escada otimizada não foi encontrada. Usando a escada provisória."
-                : "O mini supermercado está pronto. Encontre os 3 produtos e experimente a escada.");
+                : (!usingOriginalCart
+                  ? "Cenário pronto. O carrinho original não carregou; usando a versão provisória."
+                  : "O mini supermercado está pronto. Experimente o carrinho original e encontre os 3 produtos."));
             uiSummary.textContent = "";
             uiSummary.style.display = "none";
             updateStatsPanel();
@@ -2231,7 +2426,8 @@ function loadScenario() {
               "[BabyMarket] Cenário carregado: " + colliderBoxes.length +
               " colisores; " + items.length + " itens de teste; personagem " +
               (usingFallback ? "provisório." : "GLB ativo.") + "; escada " +
-              (usingCustomLadder ? "GLB otimizada." : "provisória.")
+              (usingCustomLadder ? "GLB otimizada." : "provisória.") + "; carrinho " +
+              (usingOriginalCart ? "Tripo original." : "provisório.")
             );
           });
         }
@@ -2287,8 +2483,9 @@ function animate(now) {
   updateJump(dt);
   movePlayer(dt);
   const climbTraversalFinished = updateClimbTraversal(dt);
-  const actuallyMoved = !!player &&
-    Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) > 0.0005;
+  const movedDistance = player ? Math.hypot(player.position.x - beforeX, player.position.z - beforeZ) : 0;
+  const actuallyMoved = movedDistance > 0.0005;
+  updateShoppingCart(dt, movedDistance);
   if (state !== "PAUSED") {
     updateBabyAnimation(dt, actuallyMoved && !climbTraversalFinished);
     updateCollectEffects(dt);
