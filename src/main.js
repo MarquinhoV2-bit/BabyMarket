@@ -319,8 +319,10 @@ let cartPushing = false;
 let cartYaw = Math.PI;
 const cartWheelPivots = [];
 const CART_PUSH_SPEED = 1.28;
-const CART_BODY_HALF_X = 0.12;
-const CART_BODY_HALF_Z = 0.16;
+const CART_PUSH_OFFSET = 0.74;
+const CART_ALIGNMENT_MAX_OFFSET = 0.12;
+const CART_BODY_HALF_X = 0.10;
+const CART_BODY_HALF_Z = 0.13;
 let cartVelocity = new THREE.Vector3();
 let cartLastPushVelocity = new THREE.Vector3();
 let cartPreviousPosition = new THREE.Vector3();
@@ -479,7 +481,7 @@ function addCartAxialCylinder(parent,radius,depth,x,y,z,material,segments=20){
 }
 function createProceduralShoppingCart(){
  const root=new THREE.Group();root.name="BabyMarket_ShoppingCart";root.userData.isShoppingCart=true;
- root.scale.setScalar(0.30);
+ root.scale.setScalar(0.25);
  root.userData.pushHandle={y:0.84,z:-0.57,halfWidth:0.29};
  const silver=new THREE.MeshStandardMaterial({color:0x9aa6b7,metalness:0.72,roughness:0.3});
  const brightSilver=new THREE.MeshStandardMaterial({color:0xd7e0eb,metalness:0.65,roughness:0.27});
@@ -623,7 +625,7 @@ function loadShoppingCartAsset() {
           root.userData.source = "Tripo original";
           root.userData.wheelNodeNames = requiredWheelNames.slice();
           // Redução leve (~5,5%) para melhorar proporção com o bebê.
-          root.scale.setScalar(0.30);
+          root.scale.setScalar(0.25);
           // As mãos miram o centro do cabo estimado a partir das dimensões reais do GLB.
           root.userData.pushHandle = detectCartPushHandle(model, modelBounds, modelSize);
           root.add(model);
@@ -662,7 +664,7 @@ function resetShoppingCart(){
  cartPushing=false;cartYaw=Math.PI;cartVelocity.set(0,0,0);cartLastPushVelocity.set(0,0,0);cartHadPushMotion=false;
  shoppingCart.userData.attachedToBaby=false;
  shoppingCart.rotation.set(0,cartYaw,0);
- shoppingCart.position.set(startPosition.x,0,startPosition.z-.42);shoppingCart.visible=true;
+ shoppingCart.position.set(startPosition.x,0,startPosition.z-CART_PUSH_OFFSET);shoppingCart.visible=true;
  cartPreviousPosition.copy(worldPos(shoppingCart));
  cartWheelPivots.forEach(p=>p.rotation.set(0,0,0));
 }
@@ -674,7 +676,7 @@ function cartWorldBox(position=shoppingCart?.position,yaw=shoppingCart?.rotation
 }
 function cartCanStandForPlayer(x,z,yaw){
  if(!shoppingCart||!colliderBoxes.length)return true;
- const cx=x+Math.sin(yaw)*.70,cz=z+Math.cos(yaw)*.70;
+ const cx=x+Math.sin(yaw)*CART_PUSH_OFFSET,cz=z+Math.cos(yaw)*CART_PUSH_OFFSET;
  const box=cartWorldBox(new THREE.Vector3(cx,0,cz),yaw);
  return !colliderBoxes.some(entry=>box.intersectsBox(entry.box));
 }
@@ -1155,7 +1157,8 @@ function alignBabyToCartAnchorsAndParent() {
   });
   const offset=deltas.reduce((sum,d)=>sum.add(d),new THREE.Vector3()).multiplyScalar(1/deltas.length);
   offset.y=0;
-  if(offset.length()>0.22)offset.setLength(0.22);
+  // O alinhamento só corrige poucos centímetros, evitando puxar o tronco contra o carrinho.
+  if(offset.length()>CART_ALIGNMENT_MAX_OFFSET)offset.setLength(CART_ALIGNMENT_MAX_OFFSET);
   const adjusted=player.position.clone().add(offset);
   if(canStand(adjusted.x,adjusted.z,player.position.y)) {
     player.position.x=adjusted.x;
@@ -1808,9 +1811,9 @@ function interact() {
     if(shoppingCart.parent!==scene)scene.attach(shoppingCart);
     shoppingCart.rotation.set(0,cartYaw,0);
     shoppingCart.position.set(
-      player.position.x+Math.sin(cartYaw)*.42,
+      player.position.x+Math.sin(cartYaw)*CART_PUSH_OFFSET,
       0,
-      player.position.z+Math.cos(cartYaw)*.42
+      player.position.z+Math.cos(cartYaw)*CART_PUSH_OFFSET
     );
     shoppingCart.updateWorldMatrix(true,true);
     if(!alignBabyToCartAnchorsAndParent()) {
