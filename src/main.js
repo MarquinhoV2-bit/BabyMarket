@@ -1090,7 +1090,14 @@ function createBabyFromGLTF(gltf) {
     if (key && !actions[key]) actions[key] = mixer.clipAction(clip);
   }
 
-  actions.pushCart = mixer.clipAction(createCartPushClip(THREE, visual));
+  // A falha no clipe de empurrar não pode impedir o carregamento do bebê GLB.
+  try {
+    const pushClip = createCartPushClip(THREE, visual);
+    actions.pushCart = mixer.clipAction(pushClip);
+  } catch (pushAnimationError) {
+    console.error("[BabyMarket] Falha ao preparar PushCart; mantendo o bebê 3D e usando a pose alternativa.", pushAnimationError);
+    actions.pushCart = null;
+  }
 
   if (!actions.idle || !actions.walk) {
     throw new Error("O personagem GLB precisa ter animações de espera e caminhada.");
