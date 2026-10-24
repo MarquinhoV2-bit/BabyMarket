@@ -86,6 +86,35 @@
     <h1 id="ui-title">CARREGANDO SUPERMERCADO...</h1>
     <button id="ui-btn" disabled>CARREGANDO...</button>
   </div>
-  <script type="module" src="./src/main.js?v=60"></script>
+
+  <script>
+    (function () {
+      function showStartupError(message) {
+        let panel = document.getElementById("bm-startup-error");
+        if (!panel) {
+          panel = document.createElement("pre");
+          panel.id = "bm-startup-error";
+          panel.style.cssText = "position:fixed;z-index:99999;inset:auto 10px 10px 10px;max-height:45vh;overflow:auto;white-space:pre-wrap;word-break:break-word;padding:14px;border-radius:12px;background:#450a0a;color:#fee2e2;border:2px solid #ef4444;font:12px/1.4 monospace;text-align:left;";
+          document.body.appendChild(panel);
+        }
+        panel.textContent = "BABYMARKET — ERRO AO INICIAR\n" + String(message);
+      }
+      window.addEventListener("error", function (event) {
+        showStartupError((event.message || "Falha ao carregar script") + (event.filename ? "\n" + event.filename + ":" + event.lineno : ""));
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        const reason = event.reason;
+        showStartupError(reason && (reason.stack || reason.message) || reason || "Promessa rejeitada sem detalhes");
+      });
+      window.setTimeout(function () {
+        const title = document.getElementById("ui-title");
+        const button = document.getElementById("ui-btn");
+        if (title && /CARREGANDO/i.test(title.textContent) && button && button.disabled) {
+          showStartupError("O jogo não concluiu a inicialização em 20 segundos. Verifique a conexão com os módulos Three.js e os arquivos GLB.");
+        }
+      }, 20000);
+    })();
+  </script>
+  <script type="module" src="./src/main.js?v=61"></script>
 </body>
 </html>
