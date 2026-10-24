@@ -1,6 +1,41 @@
 import * as THREE from "three";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createCartPushClip } from "./cart-push-animation.js";
+
+// Extracted push pose from the Tripo GLB; only bone rotations are reused.
+const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:Neck","mixamorig:Head","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand"];
+const CART_PUSH_DATA = "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";
+function createCartPushClip(THREE) {
+  const binary = atob(CART_PUSH_DATA);
+  const packed = new Int8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    const value = binary.charCodeAt(i);
+    packed[i] = value > 127 ? value - 256 : value;
+  }
+  const frames = 32;
+  const duration = 4;
+  const times = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) times[i] = i * duration / (frames - 1);
+  const tracks = [];
+  let offset = 0;
+  for (const boneName of CART_PUSH_BONES) {
+    const values = new Float32Array(frames * 4);
+    for (let frame = 0; frame < frames; frame++) {
+      let x = packed[offset++] / 127;
+      let y = packed[offset++] / 127;
+      let z = packed[offset++] / 127;
+      let w = packed[offset++] / 127;
+      const length = Math.hypot(x, y, z, w) || 1;
+      x /= length; y /= length; z /= length; w /= length;
+      const index = frame * 4;
+      values[index] = x; values[index + 1] = y;
+      values[index + 2] = z; values[index + 3] = w;
+    }
+    tracks.push(new THREE.QuaternionKeyframeTrack(boneName + ".quaternion", times, values));
+  }
+  return new THREE.AnimationClip("PushCart", duration, tracks);
+}
+
+
 
 // BabyMarket — primeira integração do cenário GLB (protótipo de teste).
 const css = document.createElement("style");
