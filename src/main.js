@@ -1091,23 +1091,10 @@ function applyCartPushPose(rig) {
     }
   }
 
-  // Ajuste final dos pulsos para encostar no cabo real do carrinho, quando o rig
-  // possui ossos de mão e antebraço. A pose elevada acima permanece como base.
-  if (shoppingCart?.userData?.pushHandle) {
-    shoppingCart.updateWorldMatrix(true,true);
-    rig.visual.updateWorldMatrix(true,true);
-    const handle = shoppingCart.userData.pushHandle;
-    for (const chain of chains) {
-      if (!chain.hand || !chain.forearm) continue;
-      const target = shoppingCart.localToWorld(new THREE.Vector3(
-        chain.side * handle.halfWidth, handle.y, handle.z
-      ));
-      for (let iteration=0; iteration<4; iteration++) {
-        rotatePushJointToward(chain.forearm, chain.hand, target);
-        rotatePushJointToward(chain.upper, chain.hand, target);
-      }
-    }
-  }
+  // Não tentamos reposicionar o pulso usando coordenadas de mundo aqui:
+  // alguns rigs importados têm eixos locais diferentes, e o IK podia girar o
+  // braço para dentro do torso, deixando a geometria praticamente invisível.
+  // A pose levantada acima usa rotações locais, preservando os braços visíveis.
 }
 
 function makeBox(obj) {
