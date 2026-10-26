@@ -1,144 +1,84 @@
 import * as THREE from "three";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
-// Animação de empurrar extraída do GLB original do Tripo: 48 amostras, 4 segundos.
-const CART_PUSH_BONES = ["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:LeftToeBase","mixamorig:LeftToe_End","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:RightToeBase","mixamorig:RightToe_End","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:LeftHandIndex1","mixamorig:LeftHandIndex2","mixamorig:LeftHandIndex3","mixamorig:LeftHandIndex4","mixamorig:LeftHandMiddle1","mixamorig:LeftHandMiddle2","mixamorig:LeftHandMiddle3","mixamorig:LeftHandMiddle4","mixamorig:LeftHandPinky1","mixamorig:LeftHandPinky2","mixamorig:LeftHandPinky3","mixamorig:LeftHandPinky4","mixamorig:LeftHandRing1","mixamorig:LeftHandRing2","mixamorig:LeftHandRing3","mixamorig:LeftHandRing4","mixamorig:LeftHandThumb1","mixamorig:LeftHandThumb2","mixamorig:LeftHandThumb3","mixamorig:LeftHandThumb4","mixamorig:Neck","mixamorig:Head","mixamorig:HeadTop_End","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand","mixamorig:RightHandIndex1","mixamorig:RightHandIndex2","mixamorig:RightHandIndex3","mixamorig:RightHandIndex4","mixamorig:RightHandMiddle1","mixamorig:RightHandMiddle2","mixamorig:RightHandMiddle3","mixamorig:RightHandMiddle4","mixamorig:RightHandPinky1","mixamorig:RightHandPinky2","mixamorig:RightHandPinky3","mixamorig:RightHandPinky4","mixamorig:RightHandRing1","mixamorig:RightHandRing2","mixamorig:RightHandRing3","mixamorig:RightHandRing4","mixamorig:RightHandThumb1","mixamorig:RightHandThumb2","mixamorig:RightHandThumb3","mixamorig:RightHandThumb4"];
-const CART_PUSH_DYNAMIC_BONES = new Set(["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:LeftToeBase","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:RightToeBase","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:Neck","mixamorig:Head","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand"]);
-const CART_PUSH_ROTATION_DATA = "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";
-const CART_PUSH_HIP_DATA = "XUJQOoPxJD6IiR89W0JQOtqtJD6IiR89XUJQOjeKJD6IiR89XEJQOsZ9JD6IiR89WEJQOvVQJD6IiR89VkJQOpH1Iz6IiR89XUJQOluQIz6IiR89WkJQOpX/Ij6IiR89W0JQOo8/Ij6IiR89WUJQOimsIT6IiR89akJQOjsFIT6IiR89aEJQOlyyHz6IiR89ZUJQOpfBHT6IiR89YEJQOou2Gz6IiR89V0JQOl2IGj6IiR89XkJQOutaGz6JiR89XUJQOgY+HD6JiR89XkJQOnUSHj6JiR89WkJQOpxwHz6JiR89W0JQOqL0Hj6JiR89WkJQOnviHD6JiR89WUJQOiLDGj6JiR89XkJQOugzGj6JiR89cEJQOkK1Gz6JiR89U0JQOpSKHT6JiR89VUJQOqW2Hj6JiR89VUJQOpG2Hj6JiR89VUJQOtbFHT6JiR89UUJQOhEqHD6JiR89cUJQOkn3Gj6JiR89UkJQOvhEGz6JiR89UUJQOs/dGz6JiR89c0JQOkRRHD6JiR89dEJQOqG1HD6JiR89VEJQOteQHD6JiR89UkJQOghIGz6JiR89T0JQOhKUGT6JiR89TUJQOjkeGT6JiR89TkJQOqA4Gj6JiR89U0JQOoFTHD6JiR89VEJQOpZsHj6JiR89WEJQOryaHz6JiR89VkJQOsz/Hz6JiR89VkJQOj39Hz6JiR89WUJQOoi3ID6JiR89WUJQOjGnIT6JiR89W0JQOldGIj6JiR89WkJQOji2Ij6JiR89";
-const CART_PUSH_FRAMES = 48;
-const CART_PUSH_DURATION = 4.0;
-const CART_PUSH_SOURCE_HIPS_REST_Y = 0.1627732366323471;
+// Animação de empurrar extraída diretamente do GLB original do Tripo.
+const CART_PUSH_BONES=["mixamorig:Hips","mixamorig:LeftUpLeg","mixamorig:LeftLeg","mixamorig:LeftFoot","mixamorig:LeftToeBase","mixamorig:RightUpLeg","mixamorig:RightLeg","mixamorig:RightFoot","mixamorig:RightToeBase","mixamorig:Spine","mixamorig:Spine1","mixamorig:Spine2","mixamorig:LeftShoulder","mixamorig:LeftArm","mixamorig:LeftForeArm","mixamorig:LeftHand","mixamorig:Neck","mixamorig:Head","mixamorig:RightShoulder","mixamorig:RightArm","mixamorig:RightForeArm","mixamorig:RightHand"];
+const CART_PUSH_ROTATION_DATA="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";
+const CART_PUSH_HIP_DATA="AELeukALALsA9Ai7QBAMu4BEF7uAHS67AGtHu4Cca7sAz427wDugu4AZtbtgdd+7AMcOvMB3L7ygWkK8wDE1vBAAJ7wguQm8YK3nu6As97vAuBy8UK4+vPChR7xQjC+8MDcSvEDs/rvA7v67EIMOvGA/KLzgazu88JA2vIADLbwwzCW8YIYfvADTIbzwXza8UJ9RvOD8WLxwVke8YKglvBAXBLxgaeK7YMfVu0AZ1rvgz767wNqguwD2jLvAb4K7";
+const CART_PUSH_FRAMES=48;
+const CART_PUSH_DURATION=4.0;
+const CART_PUSH_FIRST_KEY_TIME=1/24;
+const CART_PUSH_LAST_KEY_TIME=95/24;
 
-function createCartPushClip(THREE, visual) {
-  const decode = (value) => Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-  const rotationBytes = decode(CART_PUSH_ROTATION_DATA);
-  const hipBytes = decode(CART_PUSH_HIP_DATA);
-  if (rotationBytes.byteLength !== 4568 || hipBytes.byteLength !== 576) {
-    throw new Error("Dados da animação Tripo incompletos: " + rotationBytes.byteLength + "/" + hipBytes.byteLength);
+function createCartPushClip(THREE,visual){
+  const decode=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
+  const rotationBytes=decode(CART_PUSH_ROTATION_DATA);
+  const hipBytes=decode(CART_PUSH_HIP_DATA);
+  if(rotationBytes.byteLength!==CART_PUSH_BONES.length*CART_PUSH_FRAMES*4||hipBytes.byteLength!==CART_PUSH_FRAMES*4){
+    throw new Error("Payload de empurrar inválido: "+rotationBytes.byteLength+"/"+hipBytes.byteLength);
   }
-
-  const rotationView = new DataView(rotationBytes.buffer);
-  const hipView = new DataView(hipBytes.buffer);
-  const animatedTimes = Float32Array.from({ length: CART_PUSH_FRAMES }, (_, i) =>
-    i === CART_PUSH_FRAMES - 1 ? CART_PUSH_DURATION : (i * 2 + 1) / 24
-  );
-  const staticTimes = new Float32Array([1 / 24, CART_PUSH_DURATION]);
-  const tracks = [];
-  const directPoseBones = [];
-  let directHipValues = null;
-  let rotationOffset = 0;
-  let animatedBones = 0;
-  let missingBones = 0;
-
-  for (const boneName of CART_PUSH_BONES) {
-    const animated = CART_PUSH_DYNAMIC_BONES.has(boneName);
-    const sampleCount = animated ? CART_PUSH_FRAMES : 2;
-    const values = new Float32Array(sampleCount * 4);
-    let previous = null;
-
-    for (let frame = 0; frame < sampleCount; frame++) {
-      let x = rotationView.getInt8(rotationOffset++) / 127;
-      let y = rotationView.getInt8(rotationOffset++) / 127;
-      let z = rotationView.getInt8(rotationOffset++) / 127;
-      let w = rotationView.getInt8(rotationOffset++) / 127;
-      const length = Math.hypot(x, y, z, w) || 1;
-      x /= length; y /= length; z /= length; w /= length;
-      if (previous && previous.x * x + previous.y * y + previous.z * z + previous.w * w < 0) {
-        x = -x; y = -y; z = -z; w = -w;
-      }
-      values.set([x, y, z, w], frame * 4);
-      previous = { x, y, z, w };
+  const packed=new Int8Array(rotationBytes.buffer);
+  const hipView=new DataView(hipBytes.buffer);
+  const times=Float32Array.from({length:CART_PUSH_FRAMES},(_,i)=>CART_PUSH_FIRST_KEY_TIME+(CART_PUSH_LAST_KEY_TIME-CART_PUSH_FIRST_KEY_TIME)*i/(CART_PUSH_FRAMES-1));
+  const tracks=[];
+  const directPoseBones=[];
+  let offset=0;
+  const missing=[];
+  for(const boneName of CART_PUSH_BONES){
+    const bone=visual.getObjectByName(boneName);
+    if(!bone||!bone.isBone) missing.push(boneName);
+    const values=new Float32Array(CART_PUSH_FRAMES*4);
+    let previous=null;
+    for(let frame=0;frame<CART_PUSH_FRAMES;frame++){
+      let x=packed[offset++]/127,y=packed[offset++]/127,z=packed[offset++]/127,w=packed[offset++]/127;
+      const length=Math.hypot(x,y,z,w)||1;x/=length;y/=length;z/=length;w/=length;
+      if(previous&&previous.x*x+previous.y*y+previous.z*z+previous.w*w<0){x=-x;y=-y;z=-z;w=-w;}
+      values.set([x,y,z,w],frame*4);previous={x,y,z,w};
     }
-
-    const bone = visual.getObjectByName(boneName);
-    if (!bone || !bone.isBone) {
-      missingBones++;
-      continue;
+    if(!bone||!bone.isBone) continue;
+    tracks.push(new THREE.QuaternionKeyframeTrack(boneName+".quaternion",times,values));
+    directPoseBones.push({name:boneName,bone,animated:true,values});
+  }
+  const hips=visual.getObjectByName("mixamorig:Hips");
+  let directHipValues=null;
+  if(hips&&hips.isBone){
+    const bind=hips.position.clone(),values=new Float32Array(CART_PUSH_FRAMES*3);
+    for(let i=0;i<CART_PUSH_FRAMES;i++){
+      const deltaY=hipView.getFloat32(i*4,true);
+      values.set([bind.x,bind.y+deltaY,bind.z],i*3);
     }
-    tracks.push(new THREE.QuaternionKeyframeTrack(
-      boneName + ".quaternion",
-      animated ? animatedTimes : staticTimes,
-      values,
-      animated ? THREE.InterpolateLinear : THREE.InterpolateDiscrete
-    ));
-    // Keep a direct bone reference as a fallback for GLTF track-name sanitization.
-    directPoseBones.push({ name: boneName, bone, animated, values });
-    if (animated) animatedBones++;
+    directHipValues={bone:hips,bindPosition:bind,values};
+    tracks.push(new THREE.VectorKeyframeTrack("mixamorig:Hips.position",times,values));
   }
-
-  const hips = visual.getObjectByName("mixamorig:Hips");
-  if (hips?.isBone) {
-    const bindPosition = hips.position.clone();
-    const values = new Float32Array(CART_PUSH_FRAMES * 3);
-    for (let frame = 0; frame < CART_PUSH_FRAMES; frame++) {
-      const sourceY = hipView.getFloat32(frame * 12 + 4, true);
-      values.set([
-        bindPosition.x,
-        bindPosition.y + sourceY - CART_PUSH_SOURCE_HIPS_REST_Y,
-        bindPosition.z
-      ], frame * 3);
-    }
-    directHipValues = { bone: hips, bindPosition, values };
-    tracks.push(new THREE.VectorKeyframeTrack("mixamorig:Hips.position", animatedTimes, values));
+  if(offset!==rotationBytes.byteLength||directPoseBones.length!==CART_PUSH_BONES.length||missing.length||!directHipValues){
+    throw new Error("O rig não corresponde à animação push. Ossos ausentes: "+missing.join(", "));
   }
-
-  if (rotationOffset !== rotationBytes.byteLength || animatedBones !== 22 || missingBones > 0) {
-    throw new Error("A animação Tripo não corresponde ao rig atual: " +
-      animatedBones + " ossos animados, " + missingBones + " ossos ausentes.");
-  }
-  console.info("[BabyMarket] Animação original do Tripo preparada:", {
-    animatedBones, tracks: tracks.length, frames: CART_PUSH_FRAMES,
-    duration: CART_PUSH_DURATION, missingBones
-  });
-  const clip = new THREE.AnimationClip("PushCart", CART_PUSH_DURATION, tracks);
-  clip.cartPushPoseData = {
-    bones: directPoseBones,
-    hips: directHipValues,
-    frames: CART_PUSH_FRAMES,
-    duration: CART_PUSH_DURATION
-  };
+  const clip=new THREE.AnimationClip("PushCart",CART_PUSH_DURATION,tracks);
+  clip.cartPushPoseData={bones:directPoseBones,hips:directHipValues,frames:CART_PUSH_FRAMES,duration:CART_PUSH_DURATION,firstKeyTime:CART_PUSH_FIRST_KEY_TIME,lastKeyTime:CART_PUSH_LAST_KEY_TIME};
+  console.info("[BabyMarket] Animação Tripo preparada:",{tracks:tracks.length,frames:CART_PUSH_FRAMES,duration:CART_PUSH_DURATION,missingBones:missing.length});
   return clip;
 }
 
-function applyCartPushPoseFromSamples(rig) {
-  const action = rig?.actions?.pushCart;
-  const pose = action?.getClip?.().cartPushPoseData;
-  if (!pose?.bones?.length) return false;
-  const duration = pose.duration || CART_PUSH_DURATION;
-  const time = ((action.time % duration) + duration) % duration;
-  const framePosition = (time / duration) * (pose.frames - 1);
-  const frameA = Math.min(pose.frames - 1, Math.floor(framePosition));
-  const frameB = Math.min(pose.frames - 1, frameA + 1);
-  const alpha = framePosition - frameA;
-  const qa = new THREE.Quaternion();
-  const qb = new THREE.Quaternion();
-
-  for (const item of pose.bones) {
-    const { bone, animated, values } = item;
-    if (!bone?.isBone) continue;
-    if (!animated) {
-      bone.quaternion.set(values[0], values[1], values[2], values[3]).normalize();
-      continue;
-    }
-    const ia = frameA * 4;
-    const ib = frameB * 4;
-    qa.set(values[ia], values[ia + 1], values[ia + 2], values[ia + 3]);
-    qb.set(values[ib], values[ib + 1], values[ib + 2], values[ib + 3]);
-    bone.quaternion.copy(qa.slerp(qb, alpha).normalize());
+function applyCartPushPoseFromSamples(rig){
+  const action=rig?.actions?.pushCart,pose=action?.getClip?.().cartPushPoseData;
+  if(!pose?.bones?.length)return false;
+  const duration=pose.duration||CART_PUSH_DURATION;
+  const time=((action.time%duration)+duration)%duration;
+  const framePosition=THREE.MathUtils.clamp((time-(pose.firstKeyTime||1/24))/((pose.lastKeyTime||95/24)-(pose.firstKeyTime||1/24))*(pose.frames-1),0,pose.frames-1);
+  const a=Math.min(pose.frames-1,Math.floor(framePosition)),b=Math.min(pose.frames-1,a+1),alpha=framePosition-a;
+  const qa=new THREE.Quaternion(),qb=new THREE.Quaternion();
+  for(const item of pose.bones){
+    const {bone,values}=item;if(!bone?.isBone)continue;
+    const ia=a*4,ib=b*4;
+    qa.set(values[ia],values[ia+1],values[ia+2],values[ia+3]);
+    qb.set(values[ib],values[ib+1],values[ib+2],values[ib+3]);
+    bone.quaternion.copy(qa.slerp(qb,alpha).normalize());
   }
-
-  if (pose.hips?.bone && pose.hips.values) {
-    const { bone, values } = pose.hips;
-    const ia = frameA * 3;
-    const ib = frameB * 3;
-    bone.position.set(
-      values[ia] + (values[ib] - values[ia]) * alpha,
-      values[ia + 1] + (values[ib + 1] - values[ia + 1]) * alpha,
-      values[ia + 2] + (values[ib + 2] - values[ia + 2]) * alpha
-    );
+  if(pose.hips?.bone&&pose.hips.values){
+    const {bone,values}=pose.hips,ia=a*3,ib=b*3;
+    bone.position.set(values[ia]+(values[ib]-values[ia])*alpha,values[ia+1]+(values[ib+1]-values[ia+1])*alpha,values[ia+2]+(values[ib+2]-values[ia+2])*alpha);
   }
-  rig.visual?.updateWorldMatrix(true, true);
+  rig.visual?.updateWorldMatrix(true,true);
   return true;
 }
 
