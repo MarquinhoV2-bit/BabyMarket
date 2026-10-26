@@ -660,7 +660,7 @@ function detectCartPushHandle(model, modelBounds, modelSize) {
       // Pegadas próximas às extremidades: cada alvo fica a 44% da largura
       // total da barra a partir do centro (88% entre as duas mãos), deixando
       // uma pequena margem até as pontas físicas.
-      halfWidth: Math.max(0.01, handleSize.x * 0.44),
+      halfWidth: Math.max(0.01, handleSize.x * 0.46),
       sourceNode: "tripo_part_3"
     };
     console.info("[BabyMarket] Anchor da alça (tripo_part_3), pegada perto das pontas:", {
@@ -1182,11 +1182,11 @@ function updateGLTFBabyAnimation(dt, moved, rig) {
   }
   rig.mixer.update(dt);
   if (cartPushing && rig.actions.pushCart) {
-    // Apply directly to the actual bones after the mixer tick, so the pose remains
-    // visible even if a GLTFLoader version sanitizes bone names in track bindings.
+    // Preserve the animated pose, then anchor each real wrist to its own end of the bar.
     applyCartPushPoseFromSamples(rig);
+    applyRealCartPushPose(rig, 14);
   } else if (cartPushing) {
-    applyRealCartPushPose(rig);
+    applyRealCartPushPose(rig, 14);
   }
 }
 
@@ -1363,30 +1363,28 @@ function fitCartScaleToPushPose(rig) {
   const handleSpan = Math.max(0.01, handleLeft.distanceTo(handleRight));
   const handSpan = leftHand.distanceTo(rightHand);
 
-  const heightScale = handMidpoint.y / handleHeight;
-  const spanScale = handSpan / handleSpan;
-  // Height carries a little more weight so the wheels stay on the floor while both
-  // wrists remain close to the two ends of the actual cart handle.
-  const fittedScale = THREE.MathUtils.clamp(heightScale * 0.65 + spanScale * 0.35, 0.25, 0.90);
-
-  shoppingCart.scale.setScalar(fittedScale);
-  shoppingCart.userData.fitScale = fittedScale;
-  shoppingCart.userData.targetHandleY = handleHeight * fittedScale;
+  // Calibrate width to the wrist spacing and height to the animated wrist midpoint.
+  // This preserves floor contact while ensuring one wrist maps to each end of the bar.
+  const spanScale = THREE.MathUtils.clamp(handSpan / handleSpan, 0.25, 0.90);
+  const heightScale = THREE.MathUtils.clamp(handMidpoint.y / handleHeight, 0.25, 0.90);
+  const depthScale = heightScale;
+  shoppingCart.scale.set(spanScale, heightScale, depthScale);
+  shoppingCart.userData.fitScale = { x: spanScale, y: heightScale, z: depthScale };
+  shoppingCart.userData.targetHandleY = handleHeight * heightScale;
   shoppingCart.userData.animationGrip = {
     handSpan: Number(handSpan.toFixed(3)),
-    handleSpan: Number((handleSpan * fittedScale).toFixed(3)),
+    fittedHandleSpan: Number((handleSpan * spanScale).toFixed(3)),
     targetHandY: Number(handMidpoint.y.toFixed(3)),
-    fittedHandleY: Number((handleHeight * fittedScale).toFixed(3)),
+    fittedHandleY: Number((handleHeight * heightScale).toFixed(3)),
+    widthScale: Number(spanScale.toFixed(3)),
     heightScale: Number(heightScale.toFixed(3)),
-    spanScale: Number(spanScale.toFixed(3)),
-    scale: Number(fittedScale.toFixed(3))
+    depthScale: Number(depthScale.toFixed(3))
   };
-  shoppingCart.position.y = -baseY * fittedScale;
+  shoppingCart.position.y = -baseY * heightScale;
   shoppingCart.updateWorldMatrix(true, true);
-  console.info("[BabyMarket] Escala do carrinho ajustada à pose de empurrar:", shoppingCart.userData.animationGrip);
-  return { leftHand, rightHand, handMidpoint, handleCenter, fittedScale };
+  console.info("[BabyMarket] Escala da alça calibrada para as duas mãos:", shoppingCart.userData.animationGrip);
+  return { leftHand, rightHand, handMidpoint, handleCenter, spanScale, heightScale };
 }
-
 function alignBabyToCartAnchorsAndParent() {
   if (!player || !shoppingCart) return false;
   const rig = player.userData.babyRig;
@@ -1416,6 +1414,7 @@ function alignBabyToCartAnchorsAndParent() {
     rig.currentKey = "pushCart";
     rig.playbackDirection = 1;
     rig.mixer.update(0);
+    applyCartPushPoseFromSamples(rig);
   }
 
   player.updateWorldMatrix(true, true);
@@ -1439,7 +1438,7 @@ function alignBabyToCartAnchorsAndParent() {
   const cartYaw = player.rotation.y;
   shoppingCart.rotation.set(0, cartYaw, 0);
 
-  const localCenter = cartHandleAnchorLocal(0).multiplyScalar(shoppingCart.scale.x)
+  const localCenter = cartHandleAnchorLocal(0).multiply(shoppingCart.scale)
     .applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, cartYaw, 0)));
   shoppingCart.position.x = desiredHandleCenter.x - localCenter.x;
   shoppingCart.position.z = desiredHandleCenter.z - localCenter.z;
@@ -1447,23 +1446,24 @@ function alignBabyToCartAnchorsAndParent() {
   shoppingCart.position.y = -baseY * shoppingCart.scale.y;
   shoppingCart.updateWorldMatrix(true, true);
 
-  // Fallback path still uses the original baby's arms and IK; no surrogate limbs are created.
-  if (rig?.isGLTF && !rig.actions.pushCart) applyRealCartPushPose(rig, 18);
+  // Attach at the calibrated world pose, then solve both real wrists onto the handle.
   player.attach(shoppingCart);
   shoppingCart.userData.attachedToBaby = true;
   cartPreviousPosition.copy(worldPos(shoppingCart));
+  if (rig?.isGLTF) applyRealCartPushPose(rig, 18);
 
   const leftChain = rig?.cartPushArmChains?.find((chain) => chain.side < 0);
   const rightChain = rig?.cartPushArmChains?.find((chain) => chain.side > 0);
   if (leftChain && rightChain) {
     const left = handWorldPosition(leftChain);
     const right = handWorldPosition(rightChain);
-    const actualHandleLeft = shoppingCart.localToWorld(cartHandleAnchorLocal(-1).multiplyScalar(shoppingCart.scale.x));
-    const actualHandleRight = shoppingCart.localToWorld(cartHandleAnchorLocal(1).multiplyScalar(shoppingCart.scale.x));
-    console.info("[BabyMarket] Conferência da pegada:", {
+    const actualHandleLeft = shoppingCart.localToWorld(cartHandleAnchorLocal(-1).clone());
+    const actualHandleRight = shoppingCart.localToWorld(cartHandleAnchorLocal(1).clone());
+    console.info("[BabyMarket] Conferência da pegada nas duas pontas:", {
       leftHandError: Number(left.distanceTo(actualHandleLeft).toFixed(3)),
       rightHandError: Number(right.distanceTo(actualHandleRight).toFixed(3)),
-      scale: Number(shoppingCart.scale.x.toFixed(3)),
+      scaleX: Number(shoppingCart.scale.x.toFixed(3)),
+      scaleY: Number(shoppingCart.scale.y.toFixed(3)),
       animation: rig.currentKey
     });
   }
